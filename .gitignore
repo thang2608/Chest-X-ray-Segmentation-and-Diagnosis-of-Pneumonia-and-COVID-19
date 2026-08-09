@@ -4,6 +4,7 @@ __pycache__/
 .ipynb_checkpoints/
 data/
 models/
+
 # Dataset
 COVID-19_Radiography_Dataset/
 
