@@ -10,6 +10,7 @@ COVID-19_Radiography_Dataset/
 
 # Processed data
 data/processed/
+data/split
 
 # Python
 *.pyc

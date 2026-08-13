@@ -15,3 +15,7 @@ COVID-19_Radiography_Dataset/
 4. Chạy file preprocess.py để tạo ra thư mục processed_data bằng câu lệnh sau 
 
 python src\preprocess.py
+
+5. Chạy file split_data.py để chia tập train/val/test bằng câu lệnh
+
+python src\split_data.py
