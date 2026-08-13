@@ -1,5 +1,5 @@
 # Chest-X-ray-Segmentation-and-Diagnosis-of-Pneumonia-and-COVID-19
-
+Clone repo về máy 
 1. Download dataset về từ link Kaggle này : https://www.kaggle.com/datasets/tawsifurrahman/covid19-radiography-database/data?select=COVID-19_Radiography_Dataset
 
 2. Extract file tải về vào clone repo 
