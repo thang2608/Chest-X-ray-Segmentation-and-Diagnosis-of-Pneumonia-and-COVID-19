@@ -1,6 +1,14 @@
 # requirements-model.txt — Model Lead packages (tách khỏi requirements chung của backend)
-torch>=2.1.0
-torchvision>=0.16.0
+#
+# QUAN TRỌNG: torch và torchvision phải cài TRƯỚC với CUDA flag, KHÔNG dùng file này để cài chúng.
+# Lý do: pip install torch từ PyPI mặc định sẽ lấy bản CPU, ghi đè mất bản CUDA đang có.
+#
+# Cài torch + torchvision với CUDA (chạy 1 lần trong conda env mliot):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#
+# Sau đó mới chạy:
+#   pip install -r requirements-model.txt
+
 albumentations>=1.3.1
 segmentation-models-pytorch>=0.3.3
 grad-cam>=1.5.0
