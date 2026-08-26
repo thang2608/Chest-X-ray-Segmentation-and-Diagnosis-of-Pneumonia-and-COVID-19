@@ -3,7 +3,7 @@
 # QUAN TRỌNG: torch và torchvision phải cài TRƯỚC với CUDA flag, KHÔNG dùng file này để cài chúng.
 # Lý do: pip install torch từ PyPI mặc định sẽ lấy bản CPU, ghi đè mất bản CUDA đang có.
 #
-# Cài torch + torchvision với CUDA (chạy 1 lần trong conda env mliot):
+# Cài torch + torchvision với CUDA :
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 #
 # Sau đó mới chạy:
