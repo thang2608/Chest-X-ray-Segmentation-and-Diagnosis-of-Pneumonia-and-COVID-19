@@ -4,7 +4,7 @@ import numpy as np
 import random
 
 
-DATASET_DIR = Path("COVID-19_Radiography_Dataset/COVID-19_Radiography_Dataset")
+DATASET_DIR = Path("COVID-19_Radiography_Dataset")
 
 OUTPUT_DIR = Path("data/processed")
 

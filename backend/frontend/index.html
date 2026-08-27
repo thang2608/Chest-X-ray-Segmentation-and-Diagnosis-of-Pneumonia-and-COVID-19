@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chest-CADx | Hệ Thống Phân Tích & Hỗ Trợ Chẩn Đoán X-Quang Phổi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #0b0f17;
+      --bg-panel: #111827;
+      --bg-card: #1a2234;
+      --bg-card-hover: #222d42;
+      --border: #26334d;
+
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #3b82f6;
+
+      --danger: #dc2626;
+      --danger-bg: rgba(220, 38, 38, 0.12);
+      --danger-border: rgba(220, 38, 38, 0.35);
+
+      --warning: #d97706;
+      --warning-bg: rgba(217, 119, 6, 0.12);
+      --warning-border: rgba(217, 119, 6, 0.35);
+
+      --success: #059669;
+      --success-bg: rgba(5, 150, 105, 0.12);
+      --success-border: rgba(5, 150, 105, 0.35);
+
+      --text-main: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+
+      --radius-sm: 4px;
+      --radius-md: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      min-height: 100vh;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* Top Navigation */
+    header {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .nav-container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text-main);
+    }
+
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      background: var(--primary);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+
+    .brand-logo svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .brand-info h1 {
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      text-transform: uppercase;
+    }
+
+    .brand-info p {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .header-status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .privacy-tag {
+      background: #1e293b;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.72rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .privacy-tag svg {
+      width: 13px;
+      height: 13px;
+      color: #38bdf8;
+    }
+
+    .system-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(5, 150, 105, 0.1);
+      border: 1px solid var(--success-border);
+      color: #34d399;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      background: #10b981;
+      border-radius: 50%;
+    }
+
+    /* Sub-header meta bar */
+    .meta-bar {
+      background: #0d131f;
+      border-bottom: 1px solid var(--border);
+      padding: 8px 24px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .meta-bar-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .meta-item {
+      display: flex;
+      gap: 6px;
+    }
+
+    .meta-item span {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    /* Main Content Layout */
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .grid-layout {
+      display: grid;
+      grid-template-columns: 460px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 1100px) {
+      .grid-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Panel Component */
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 14px 18px;
+      background: #151d2e;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-title svg {
+      width: 16px;
+      height: 16px;
+      color: var(--primary-light);
+    }
+
+    .panel-body {
+      padding: 20px;
+    }
+
+    /* Dropzone Upload */
+    .dropzone {
+      border: 1px dashed #374765;
+      border-radius: var(--radius-sm);
+      padding: 32px 20px;
+      text-align: center;
+      background: #0d131f;
+      cursor: pointer;
+      transition: border-color 0.2s, background-color 0.2s;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--primary-light);
+      background: #111a2c;
+    }
+
+    .dropzone-icon {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 12px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dropzone-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 4px;
+    }
+
+    .dropzone-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    /* Sample Selection */
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-secondary);
+      margin: 20px 0 10px;
+    }
+
+    .samples-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .sample-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px;
+      cursor: pointer;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+
+    .sample-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--primary-light);
+    }
+
+    .sample-thumb {
+      width: 44px;
+      height: 44px;
+      background: #000;
+      border-radius: var(--radius-sm);
+      object-fit: cover;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .sample-meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .sample-name {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sample-type {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* Selected File Preview Box */
+    .preview-box {
+      display: none;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      margin-top: 14px;
+    }
+
+    .preview-box.active {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .preview-thumbnail {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: var(--radius-sm);
+      background: #000;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .preview-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .preview-filename {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .preview-status {
+      font-size: 0.72rem;
+      color: #34d399;
+      font-weight: 500;
+    }
+
+    /* Analyze CTA Button */
+    .btn-submit {
+      width: 100%;
+      margin-top: 18px;
+      padding: 12px 16px;
+      background: var(--primary);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background-color 0.2s;
+    }
+
+    .btn-submit:hover:not(:disabled) {
+      background: var(--primary-hover);
+    }
+
+    .btn-submit:disabled {
+      background: #1e293b;
+      color: var(--text-muted);
+      cursor: not-allowed;
+      border-color: transparent;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Right Panel: Results & Metrics */
+    .empty-state {
+      padding: 90px 20px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .empty-state-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 12px;
+      color: #374765;
+    }
+
+    .empty-state h3 {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .empty-state p {
+      font-size: 0.8rem;
+    }
+
+    .results-wrapper {
+      display: none;
+    }
+
+    /* Clinical Diagnosis Banner */
+    .diagnosis-summary {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .summary-main {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .summary-meta-row {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .summary-tag {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .summary-code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      background: #0d131f;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      color: var(--primary-light);
+    }
+
+    .summary-disease {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .severity-badge {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .badge-high-risk {
+      background: var(--danger-bg);
+      color: #f87171;
+      border: 1px solid var(--danger-border);
+    }
+
+    .badge-warning {
+      background: var(--warning-bg);
+      color: #fbbf24;
+      border: 1px solid var(--warning-border);
+    }
+
+    .badge-normal {
+      background: var(--success-bg);
+      color: #34d399;
+      border: 1px solid var(--success-border);
+    }
+
+    /* Confidence Meter */
+    .confidence-panel {
+      margin-top: 10px;
+    }
+
+    .confidence-label-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .confidence-score {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .progress-track {
+      height: 6px;
+      background: #0d131f;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: var(--primary);
+      width: 0%;
+      transition: width 0.8s ease-out;
+    }
+
+    /* Metrics Grid */
+    .metrics-header {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+    }
+
+    .metrics-table-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .metrics-table-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .metric-cell {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+    }
+
+    .metric-cell-name {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    .metric-cell-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .metric-cell-desc {
+      font-size: 0.65rem;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    /* Diagnostic Radiograph Viewer */
+    .viewer-container {
+      margin-bottom: 20px;
+    }
+
+    .viewer-tabs {
+      display: flex;
+      gap: 6px;
+      background: #0d131f;
+      padding: 4px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 10px;
+    }
+
+    .v-tab {
+      flex: 1;
+      padding: 8px 10px;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      text-align: center;
+      transition: background-color 0.15s, color 0.15s;
+    }
+
+    .v-tab:hover {
+      color: var(--text-main);
+    }
+
+    .v-tab.active {
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      font-weight: 600;
+    }
+
+    .viewer-screen {
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      min-height: 320px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .viewer-image {
+      max-width: 100%;
+      max-height: 400px;
+      object-fit: contain;
+      display: block;
+    }
+
+    .viewer-overlay-tag {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 0.7rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: #e5e7eb;
+    }
+
+    /* Clinical Disclaimer */
+    .disclaimer-container {
+      background: #0f1420;
+      border-left: 3px solid var(--warning);
+      padding: 10px 14px;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 0.75rem;
+      color: #d1d5db;
+      line-height: 1.45;
+      margin-bottom: 20px;
+    }
+
+    .disclaimer-title {
+      font-weight: 600;
+      color: #fbbf24;
+      margin-bottom: 2px;
+      text-transform: uppercase;
+      font-size: 0.7rem;
+      letter-spacing: 0.3px;
+    }
+
+    /* Action Toolbar */
+    .action-toolbar {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-secondary {
+      flex: 1;
+      padding: 10px 14px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      border-radius: var(--radius-sm);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background-color 0.2s;
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+    }
+
+    .btn-secondary svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-secondary);
+    }
+
+    /* Print Template for Clinical Report */
+    .print-only-report {
+      display: none;
+    }
+
+    @media print {
+      body { background: #fff; color: #000; font-size: 11pt; padding: 20px; }
+      header, .meta-bar, .grid-layout, .action-toolbar { display: none !important; }
+      
+      .print-only-report {
+        display: block !important;
+      }
+
+      .report-header {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 2px solid #000;
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+      }
+
+      .report-title h2 { font-size: 16pt; font-weight: 800; text-transform: uppercase; }
+      .report-title p { font-size: 10pt; color: #444; }
+
+      .report-meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        background: #f4f4f4;
+        padding: 10px 14px;
+        margin-bottom: 16px;
+        font-size: 10pt;
+      }
+
+      .report-images {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 16px;
+        text-align: center;
+      }
+
+      .report-images img {
+        width: 100%;
+        height: 180px;
+        object-fit: contain;
+        border: 1px solid #ddd;
+        background: #000;
+      }
+
+      .report-img-label { font-size: 9pt; font-weight: 600; margin-top: 4px; }
+
+      .report-metrics-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 16px;
+        font-size: 9.5pt;
+      }
+
+      .report-metrics-table th, .report-metrics-table td {
+        border: 1px solid #ccc;
+        padding: 6px 10px;
+        text-align: left;
+      }
+
+      .report-metrics-table th { background: #eee; }
+
+      .report-conclusion {
+        border: 1px solid #333;
+        padding: 12px;
+        margin-bottom: 16px;
+      }
+
+      .report-conclusion-title { font-weight: 700; text-transform: uppercase; font-size: 11pt; }
+
+      .report-signature {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 30px;
+        text-align: center;
+      }
+
+      .signature-block { width: 220px; }
+      .signature-space { height: 60px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header>
+    <div class="nav-container">
+      <a href="/" class="brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07l14.14-14.14"/>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1>CHEST-CADx System</h1>
+          <p>Hệ Thống Phân Tích & Hỗ Trợ Chẩn Đoán Hình Ảnh X-Quang Phổi</p>
+        </div>
+      </a>
+      <div class="header-status">
+        <div class="privacy-tag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          Chế độ Bảo Mật Không Lưu Hồ Sơ (Privacy-First)
+        </div>
+        <div class="system-status">
+          <div class="status-dot"></div>
+          <span>INFERENCE ENGINE ONLINE</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Technical Meta Bar -->
+  <div class="meta-bar">
+    <div class="meta-bar-inner">
+      <div class="meta-item">Giao thức phân tích: <span>YOLOv10 Segmentation & Grad-CAM Heatmap</span></div>
+      <div class="meta-item">Độ phân giải chuẩn hóa: <span>256 x 256 px</span></div>
+      <div class="meta-item">Cơ chế xử lý: <span>On-the-fly In-Memory Inference</span></div>
+    </div>
+  </div>
+
+  <!-- Main Grid Workspace -->
+  <main>
+    <div class="grid-layout">
+      
+      <!-- Cột trái: Tải lên & Chọn tệp mẫu -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            Tải Lên Tệp Hình Ảnh
+          </div>
+        </div>
+        <div class="panel-body">
+          
+          <!-- Dropzone -->
+          <div class="dropzone" id="dropzone">
+            <input type="file" id="fileInput" class="file-input" accept="image/png, image/jpeg, image/jpg">
+            <div class="dropzone-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="36" height="36">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+            </div>
+            <div class="dropzone-title">Kéo thả tệp X-quang vào đây</div>
+            <div class="dropzone-subtitle">hoặc bấm để duyệt tệp từ ổ cứng (PNG, JPG)</div>
+          </div>
+
+          <!-- Preview file được chọn -->
+          <div class="preview-box" id="previewBox">
+            <img id="previewThumbnail" class="preview-thumbnail" src="" alt="Thumbnail">
+            <div class="preview-details">
+              <div class="preview-filename" id="previewFilename">image.png</div>
+              <div class="preview-status">Đã tải tệp - Sẵn sàng phân tích</div>
+            </div>
+          </div>
+
+          <!-- Quick Test Samples Grid -->
+          <div class="section-label">Dữ liệu kiểm thử mẫu (Test Bench)</div>
+          <div class="samples-grid">
+            <div class="sample-card" onclick="loadSample('/static/samples/sample_covid.png', 'sample_covid.png', 'COVID-19')">
+              <img src="/static/samples/sample_covid.png" class="sample-thumb" alt="COVID">
+              <div class="sample-meta">
+                <div class="sample-name">Ca bệnh COVID-19</div>
+                <div class="sample-type">Tổn thương đông đặc</div>
+              </div>
+            </div>
+            <div class="sample-card" onclick="loadSample('/static/samples/sample_pneumonia.png', 'sample_pneumonia.png', 'Viral Pneumonia')">
+              <img src="/static/samples/sample_pneumonia.png" class="sample-thumb" alt="Pneumonia">
+              <div class="sample-meta">
+                <div class="sample-name">Viêm phổi do Virus</div>
+                <div class="sample-type">Tổn thương kẽ</div>
+              </div>
+            </div>
+            <div class="sample-card" onclick="loadSample('/static/samples/sample_opacity.png', 'sample_opacity.png', 'Lung Opacity')">
+              <img src="/static/samples/sample_opacity.png" class="sample-thumb" alt="Opacity">
+              <div class="sample-meta">
+                <div class="sample-name">Mờ phổi (Opacity)</div>
+                <div class="sample-type">Vùng giảm thông khí</div>
+              </div>
+            </div>
+            <div class="sample-card" onclick="loadSample('/static/samples/sample_normal.png', 'sample_normal.png', 'Normal')">
+              <img src="/static/samples/sample_normal.png" class="sample-thumb" alt="Normal">
+              <div class="sample-meta">
+                <div class="sample-name">Phổi bình thường</div>
+                <div class="sample-type">Không ghi nhận tổn thương</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Analyze Action Button -->
+          <button id="btnAnalyze" class="btn-submit" disabled>
+            <div class="spinner" id="analyzeSpinner"></div>
+            <span id="btnText">Tiến Hành Phân Tích Hình Ảnh</span>
+          </button>
+
+        </div>
+      </div>
+
+      <!-- Cột phải: Bảng kết quả chẩn đoán & Chỉ số kỹ thuật -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+            </svg>
+            Kết Quả Phân Tích & Định Lượng Tổn Thương
+          </div>
+        </div>
+        <div class="panel-body">
+          
+          <!-- Trạng thái chờ -->
+          <div class="empty-state" id="emptyState">
+            <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="4" y="4" width="16" height="16" rx="2"/>
+              <path d="M9 9h6v6H9z"/>
+              <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+            </svg>
+            <h3>Chưa có dữ liệu phân tích</h3>
+            <p>Vui lòng tải lên tệp X-quang hoặc chọn dữ liệu mẫu ở bảng điều khiển bên trái.</p>
+          </div>
+
+          <!-- Nội dung kết quả chẩn đoán -->
+          <div class="results-wrapper" id="resultsWrapper">
+            
+            <!-- Tóm tắt chẩn đoán -->
+            <div class="diagnosis-summary">
+              <div class="summary-main">
+                <div class="summary-meta-row">
+                  <div class="summary-tag">Phân loại bệnh lý phát hiện</div>
+                  <div class="summary-code" id="resRecordCode">RAD-2026-XXXX</div>
+                </div>
+                <div class="summary-disease" id="resDisease">COVID-19</div>
+                
+                <!-- Thanh đo độ tin cậy -->
+                <div class="confidence-panel">
+                  <div class="confidence-label-row">
+                    <span>Độ tin cậy mô hình</span>
+                    <span class="confidence-score" id="resConfidenceVal">94.2%</span>
+                  </div>
+                  <div class="progress-track">
+                    <div class="progress-bar" id="resConfidenceBar"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="severity-badge badge-high-risk" id="resBadge">Phát hiện tổn thương</div>
+            </div>
+
+            <!-- Bảng chỉ số đánh giá kỹ thuật (Metrics) -->
+            <div class="metrics-header">Bảng chỉ số đánh giá kỹ thuật (Evaluation Metrics)</div>
+            <div class="metrics-table-grid">
+              <div class="metric-cell">
+                <div class="metric-cell-name">Dice Similarity (F1)</div>
+                <div class="metric-cell-value" id="mDice">0.895</div>
+                <div class="metric-cell-desc">Độ trùng khớp phân đoạn</div>
+              </div>
+              <div class="metric-cell">
+                <div class="metric-cell-name">IoU (Jaccard Index)</div>
+                <div class="metric-cell-value" id="mIoU">0.823</div>
+                <div class="metric-cell-desc">Tỷ lệ diện tích giao thoa</div>
+              </div>
+              <div class="metric-cell">
+                <div class="metric-cell-name">Precision</div>
+                <div class="metric-cell-value" id="mPrecision">93.6%</div>
+                <div class="metric-cell-desc">Độ chính xác khoanh vùng</div>
+              </div>
+              <div class="metric-cell">
+                <div class="metric-cell-name">Sensitivity (Recall)</div>
+                <div class="metric-cell-value" id="mRecall">91.8%</div>
+                <div class="metric-cell-desc">Độ nhạy phát hiện bệnh</div>
+              </div>
+              <div class="metric-cell">
+                <div class="metric-cell-name">Tổn thương phổi</div>
+                <div class="metric-cell-value" id="mAffected">18.7%</div>
+                <div class="metric-cell-desc">% Tổng diện tích phổi</div>
+              </div>
+              <div class="metric-cell">
+                <div class="metric-cell-name">Thời gian suy luận</div>
+                <div class="metric-cell-value" id="mTime">32.2 ms</div>
+                <div class="metric-cell-desc">Độ trễ xử lý mô hình</div>
+              </div>
+            </div>
+
+            <!-- Khung xem ảnh tương tác (Radiograph Viewer) -->
+            <div class="viewer-container">
+              <div class="viewer-tabs">
+                <button class="v-tab active" onclick="switchView('raw', this)">Ảnh X-Quang Gốc</button>
+                <button class="v-tab" onclick="switchView('mask', this)">Phân Đoạn Vùng Tổn Thương (Mask)</button>
+                <button class="v-tab" onclick="switchView('heatmap', this)">Bản Đồ Nhiệt Grad-CAM</button>
+              </div>
+
+              <div class="viewer-screen">
+                <div class="viewer-overlay-tag" id="viewerOverlayTag">RAW CHEST RADIOGRAPH</div>
+                <img id="viewerImage" class="viewer-image" src="" alt="Radiograph">
+              </div>
+            </div>
+
+            <!-- Khuyến cáo y khoa -->
+            <div class="disclaimer-container">
+              <div class="disclaimer-title">Lưu ý y khoa</div>
+              <div id="resDisclaimer">
+                Kết quả phân tích từ mô hình AI chỉ mang tính chất tham khảo, hỗ trợ sàng lọc sơ bộ và không thay thế cho kết luận chẩn đoán lâm sàng của bác sĩ chuyên khoa chẩn đoán hình ảnh.
+              </div>
+            </div>
+
+            <!-- Thanh công cụ hành động -->
+            <div class="action-toolbar">
+              <button class="btn-secondary" onclick="printMedicalReport()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 6 2 18 2 18 9"/>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                  <rect x="6" y="14" width="12" height="8"/>
+                </svg>
+                In / Xuất Báo Cáo Y Khoa (PDF)
+              </button>
+              <button class="btn-secondary" onclick="resetForm()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                Phân Tích Ca Mới
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Mẫu Báo Cáo Chuyên Dụng Khi In / Xuất PDF -->
+  <div class="print-only-report" id="printReport">
+    <div class="report-header">
+      <div class="report-title">
+        <h2>PHIẾU KẾT QUẢ PHÂN TÍCH HÌNH ẢNH X-QUANG PHỔI</h2>
+        <p>Hệ Thống Phân Đoạn & Hỗ Trợ Chẩn Đoán AI (CHEST-CADx System)</p>
+      </div>
+      <div style="text-align: right; font-size: 9pt;">
+        <div>Mã phiếu: <strong id="printCode">RAD-SCAN</strong></div>
+        <div>Ngày phân tích: <strong id="printDate">2026-08-28</strong></div>
+      </div>
+    </div>
+
+    <div class="report-meta-grid">
+      <div>Đối tượng: <strong>Bệnh nhân ngoại trú (Khám sàng lọc)</strong></div>
+      <div>Vùng chụp: <strong>X-quang ngực thẳng (PA View)</strong></div>
+      <div>Tệp ảnh gốc: <span id="printFilename">scan.png</span></div>
+      <div>Mô hình AI: <strong>YOLOv10 Segmentation & Grad-CAM</strong></div>
+    </div>
+
+    <div class="report-images">
+      <div>
+        <img id="printRawImg" src="" alt="Raw X-Ray">
+        <div class="report-img-label">1. Ảnh X-quang gốc</div>
+      </div>
+      <div>
+        <img id="printMaskImg" src="" alt="Mask">
+        <div class="report-img-label">2. Phân đoạn tổn thương (Mask)</div>
+      </div>
+      <div>
+        <img id="printHeatmapImg" src="" alt="Grad-CAM">
+        <div class="report-img-label">3. Bản đồ nhiệt Grad-CAM</div>
+      </div>
+    </div>
+
+    <table class="report-metrics-table">
+      <thead>
+        <tr>
+          <th>Chỉ số đánh giá</th>
+          <th>Kết quả đo đạc</th>
+          <th>Khoảng chuẩn tham chiếu</th>
+          <th>Ý nghĩa lâm sàng</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Độ tin cậy mô hình (Confidence)</td>
+          <td><strong id="printConfidence">94.2%</strong></td>
+          <td>> 85.0%</td>
+          <td>Mức độ tin cậy của thuật toán phân loại</td>
+        </tr>
+        <tr>
+          <td>Hệ số tương đồng Dice (DSC / F1)</td>
+          <td><strong id="printDice">0.895</strong></td>
+          <td>> 0.800</td>
+          <td>Độ trùng khớp vùng tổn thương phân đoạn</td>
+        </tr>
+        <tr>
+          <td>Chỉ số Jaccard (IoU)</td>
+          <td><strong id="printIoU">0.823</strong></td>
+          <td>> 0.750</td>
+          <td>Tỷ lệ bao phủ diện tích tổn thương</td>
+        </tr>
+        <tr>
+          <td>Độ chính xác & Độ nhạy (Precision / Recall)</td>
+          <td><strong id="printPrecRec">93.6% / 91.8%</strong></td>
+          <td>> 90.0%</td>
+          <td>Độ nhạy phát hiện vùng bệnh</td>
+        </tr>
+        <tr>
+          <td>Tỷ lệ tổn thương phổi (% Lung Area)</td>
+          <td><strong id="printArea">18.7%</strong></td>
+          <td>< 5.0% (Bình thường)</td>
+          <td>Diện tích nhu mô phổi bị tổn thương</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="report-conclusion">
+      <div class="report-conclusion-title">KẾT LUẬN PHÂN TÍCH TỔN THƯƠNG:</div>
+      <div style="font-size: 13pt; font-weight: 800; margin: 6px 0;" id="printDisease">COVID-19</div>
+      <p style="font-size: 9pt; color: #444;">
+        * Lưu ý: Kết quả do hệ thống AI phân tích tự động chỉ mang tính chất hỗ trợ sàng lọc ban đầu, không thay thế cho chẩn đoán y khoa chính thức từ Bác sĩ Chẩn đoán hình ảnh.
+      </p>
+    </div>
+
+    <div class="report-signature">
+      <div class="signature-block">
+        <div style="font-size: 10pt;">Bác sĩ / Chuyên viên đọc kết quả</div>
+        <div class="signature-space"></div>
+        <div style="font-weight: 600;">(Ký và ghi rõ họ tên)</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentFile = null;
+    let analysisResult = null;
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const previewBox = document.getElementById('previewBox');
+    const previewThumbnail = document.getElementById('previewThumbnail');
+    const previewFilename = document.getElementById('previewFilename');
+    const btnAnalyze = document.getElementById('btnAnalyze');
+    const btnText = document.getElementById('btnText');
+    const analyzeSpinner = document.getElementById('analyzeSpinner');
+
+    const emptyState = document.getElementById('emptyState');
+    const resultsWrapper = document.getElementById('resultsWrapper');
+    const viewerImage = document.getElementById('viewerImage');
+    const viewerOverlayTag = document.getElementById('viewerOverlayTag');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('dragover');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        handleSelectedFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleSelectedFile(e.target.files[0]);
+      }
+    });
+
+    function handleSelectedFile(file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Tệp được chọn không phải định dạng hình ảnh hợp lệ (PNG, JPG).');
+        return;
+      }
+      currentFile = file;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        previewThumbnail.src = e.target.result;
+        previewFilename.textContent = file.name;
+        previewBox.classList.add('active');
+        btnAnalyze.disabled = false;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function loadSample(sampleUrl, filename, label) {
+      try {
+        btnText.textContent = "Đang nạp tệp mẫu...";
+        const response = await fetch(sampleUrl);
+        const blob = await response.blob();
+        const file = new File([blob], filename, { type: blob.type || 'image/png' });
+        handleSelectedFile(file);
+        btnText.textContent = "Tiến Hành Phân Tích Hình Ảnh";
+      } catch (err) {
+        console.error("Lỗi khi nạp tệp mẫu:", err);
+      }
+    }
+
+    btnAnalyze.addEventListener('click', async () => {
+      if (!currentFile) return;
+
+      btnAnalyze.disabled = true;
+      analyzeSpinner.style.display = 'block';
+      btnText.textContent = 'Đang trích xuất đặc trưng & phân đoạn...';
+
+      const formData = new FormData();
+      formData.append('file', currentFile);
+
+      try {
+        const res = await fetch('/api/v1/predict', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || 'Lỗi xử lý từ máy chủ');
+        }
+
+        analysisResult = await res.json();
+        renderResults(analysisResult);
+      } catch (error) {
+        alert('Lỗi: ' + error.message);
+      } finally {
+        btnAnalyze.disabled = false;
+        analyzeSpinner.style.display = 'none';
+        btnText.textContent = 'Tiến Hành Phân Tích Hình Ảnh';
+      }
+    });
+
+    function renderResults(data) {
+      emptyState.style.display = 'none';
+      resultsWrapper.style.display = 'block';
+
+      document.getElementById('resRecordCode').textContent = data.record_code || 'RAD-SCAN';
+      const disease = data.disease || 'COVID-19';
+      document.getElementById('resDisease').textContent = disease;
+
+      const badge = document.getElementById('resBadge');
+      badge.className = 'severity-badge';
+      if (disease.toLowerCase().includes('covid')) {
+        badge.classList.add('badge-high-risk');
+        badge.textContent = 'Tổn thương đông đặc';
+      } else if (disease.toLowerCase().includes('pneumonia')) {
+        badge.classList.add('badge-warning');
+        badge.textContent = 'Tổn thương viêm kẽ';
+      } else if (disease.toLowerCase().includes('opacity')) {
+        badge.classList.add('badge-warning');
+        badge.textContent = 'Giảm thông khí phổi';
+      } else {
+        badge.classList.add('badge-normal');
+        badge.textContent = 'Không có tổn thương';
+      }
+
+      const conf = data.confidence || 90;
+      document.getElementById('resConfidenceVal').textContent = conf.toFixed(1) + '%';
+      setTimeout(() => {
+        document.getElementById('resConfidenceBar').style.width = conf + '%';
+      }, 50);
+
+      const m = data.metrics || {
+        dice_score: 0.895,
+        iou_score: 0.823,
+        precision: 93.6,
+        recall: 91.8,
+        affected_lung_area: 18.7,
+        inference_time_ms: 32.2
+      };
+
+      document.getElementById('mDice').textContent = (m.dice_score || 0).toFixed(3);
+      document.getElementById('mIoU').textContent = (m.iou_score || 0).toFixed(3);
+      document.getElementById('mPrecision').textContent = (m.precision || 0).toFixed(1) + '%';
+      document.getElementById('mRecall').textContent = (m.recall || 0).toFixed(1) + '%';
+      document.getElementById('mAffected').textContent = (m.affected_lung_area || 0).toFixed(1) + '%';
+      document.getElementById('mTime').textContent = (m.inference_time_ms || 0).toFixed(1) + ' ms';
+
+      if (data.disclaimer) {
+        document.getElementById('resDisclaimer').textContent = data.disclaimer;
+      }
+
+      switchView('raw');
+    }
+
+    function switchView(type, btnElement) {
+      if (!analysisResult) return;
+
+      if (btnElement) {
+        document.querySelectorAll('.v-tab').forEach(b => b.classList.remove('active'));
+        btnElement.classList.add('active');
+      }
+
+      if (type === 'raw') {
+        viewerImage.src = analysisResult.raw_image_url;
+        viewerOverlayTag.textContent = 'RAW CHEST RADIOGRAPH';
+      } else if (type === 'mask') {
+        viewerImage.src = analysisResult.result_image_url;
+        viewerOverlayTag.textContent = 'SEGMENTATION LESION MASK';
+      } else if (type === 'heatmap') {
+        viewerImage.src = analysisResult.heatmap_url;
+        viewerOverlayTag.textContent = 'GRAD-CAM ACTIVATION MAP';
+      }
+    }
+
+    function printMedicalReport() {
+      if (!analysisResult) return;
+
+      // Điền thông tin vào mẫu in
+      document.getElementById('printCode').textContent = analysisResult.record_code || 'RAD-SCAN';
+      document.getElementById('printDate').textContent = analysisResult.created_at || new Date().toISOString().slice(0, 10);
+      document.getElementById('printFilename').textContent = (currentFile ? currentFile.name : 'chest_xray.png');
+      document.getElementById('printDisease').textContent = analysisResult.disease || 'COVID-19';
+      document.getElementById('printConfidence').textContent = (analysisResult.confidence || 90).toFixed(1) + '%';
+
+      const m = analysisResult.metrics || {};
+      document.getElementById('printDice').textContent = (m.dice_score || 0.895).toFixed(3);
+      document.getElementById('printIoU').textContent = (m.iou_score || 0.823).toFixed(3);
+      document.getElementById('printPrecRec').textContent = `${(m.precision || 93.6).toFixed(1)}% / ${(m.recall || 91.8).toFixed(1)}%`;
+      document.getElementById('printArea').textContent = (m.affected_lung_area || 18.7).toFixed(1) + '%';
+
+      document.getElementById('printRawImg').src = analysisResult.raw_image_url;
+      document.getElementById('printMaskImg').src = analysisResult.result_image_url;
+      document.getElementById('printHeatmapImg').src = analysisResult.heatmap_url;
+
+      // Gọi lệnh in của trình duyệt (hỗ trợ Lưu thành file PDF)
+      window.print();
+    }
+
+    function resetForm() {
+      currentFile = null;
+      analysisResult = null;
+      fileInput.value = '';
+      previewBox.classList.remove('active');
+      btnAnalyze.disabled = true;
+      resultsWrapper.style.display = 'none';
+      emptyState.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

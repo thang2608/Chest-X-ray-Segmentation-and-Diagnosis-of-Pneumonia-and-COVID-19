@@ -1,6 +1,10 @@
+.DS_Store
+*/.DS_Store
 venv/
+.venv/
 .env
 __pycache__/
+*.py[cod]
 .ipynb_checkpoints/
 data/
 models/
@@ -10,10 +14,20 @@ COVID-19_Radiography_Dataset/
 
 # Processed data
 data/processed/
-data/split
+data/split/
 
-# Python
-*.pyc
+# Backend uploads & weights (chỉ giữ .gitkeep)
+backend/uploads/raw/*
+!backend/uploads/raw/.gitkeep
+backend/uploads/results/*
+!backend/uploads/results/.gitkeep
+backend/uploads/heatmaps/*
+!backend/uploads/heatmaps/.gitkeep
+backend/weights/*.pt
+backend/weights/*.onnx
+backend/weights/*.pth
+!backend/weights/.gitkeep
 
-# VSCode
+# VSCode & IDE
 .vscode/
+.idea/
