@@ -26,7 +26,14 @@ from PIL import Image
 # "import src.xxx" bên dưới hoạt động, bất kể uvicorn chạy với cwd nào.
 from app.core import config as _config  # noqa: F401  (side-effect: sys.path đã có REPO_ROOT)
 
-from src.dataset import IDX_TO_CLASS, IMAGE_SIZE, NUM_CLASSES, crop_to_lung_bbox, get_val_transforms
+from src.dataset import (
+    IDX_TO_CLASS,
+    IMAGE_SIZE,
+    NUM_CLASSES,
+    crop_to_lung_bbox,
+    crop_to_lung_bbox_blackout,
+    get_val_transforms,
+)
 from src.gradcam import generate_gradcam, overlay_heatmap
 from src.model import build_classifier, load_classifier
 from src.shortcut_iou import binarize, containment, iou, predict_lung_mask
@@ -56,6 +63,17 @@ AGGREGATE_METRICS_CROPPED = {
     "precision": 0.9322,    # Classifier CROP, Macro Precision (val set)
     "recall": 0.9304,       # Classifier CROP, Macro Recall (val set)
 }
+# TODO: cập nhật precision/recall thật sau khi train xong
+# notebooks/train_classifier_blackout.ipynb — hiện đang tạm dùng LẠI số của bản CROP
+# làm placeholder (không phải số liệu blackout thật) để không có giá trị "bịa" hiển
+# thị cho người dùng trước khi model blackout tồn tại — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md
+# Phần 5.4/6. self.blackout_mode chỉ True khi weights/best_classifier_blackout.pth
+# thực sự load được, nên placeholder này chỉ "sống" cho tới lần train xong đầu tiên.
+AGGREGATE_METRICS_BLACKOUT = {
+    "dice_score": 0.9862,
+    "precision": 0.9322,
+    "recall": 0.9304,
+}
 
 
 class MedicalSegmentationModel:
@@ -69,16 +87,34 @@ class MedicalSegmentationModel:
         unet_path: str,
         device: Optional[str] = None,
         cropped_classifier_path: Optional[str] = None,
+        blackout_classifier_path: Optional[str] = None,
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.classifier_is_trained = False
         self.unet_is_trained = False
         self.crop_mode = False
+        self.blackout_mode = False  # True CHỈ khi bản blackout cụ thể được load (xem crop_mode)
 
-        # --- Classifier: ưu tiên bản "đã tối ưu" (crop) nếu có, giống cơ chế đã dùng
-        # trong api/inference.py — an toàn để merge, không đổi hành vi hiện tại nếu
-        # chưa có weights/best_classifier_cropped.pth. ---
-        if cropped_classifier_path and Path(cropped_classifier_path).exists():
+        # --- Classifier: ưu tiên theo thứ tự blackout > cropped > baseline (mỗi bản
+        # "tối ưu hơn" bản trước — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5, 5.4),
+        # giống cơ chế đã dùng trong api/inference.py — an toàn để merge, không đổi
+        # hành vi hiện tại nếu weights tương ứng chưa tồn tại. ---
+        if blackout_classifier_path and Path(blackout_classifier_path).exists():
+            try:
+                self.classifier = load_classifier(
+                    blackout_classifier_path, num_classes=NUM_CLASSES, device=self.device, verbose=True
+                )
+                self.classifier_is_trained = True
+                self.crop_mode = True
+                self.blackout_mode = True
+                print(f"[ai_engine] OK: dung classifier DA TOI UU (blackout) tu {blackout_classifier_path}")
+            except Exception as exc:
+                print(
+                    f"[ai_engine] WARNING: co {blackout_classifier_path} nhung load loi "
+                    f"({type(exc).__name__}: {exc}) - fallback ve classifier cropped/baseline."
+                )
+
+        if not self.classifier_is_trained and cropped_classifier_path and Path(cropped_classifier_path).exists():
             try:
                 self.classifier = load_classifier(
                     cropped_classifier_path, num_classes=NUM_CLASSES, device=self.device, verbose=True
@@ -138,7 +174,8 @@ class MedicalSegmentationModel:
         self.transform = get_val_transforms()
         print(
             f"[ai_engine] READY | classifier_trained={self.classifier_is_trained} "
-            f"crop_mode={self.crop_mode} unet_trained={self.unet_is_trained} device={self.device}"
+            f"crop_mode={self.crop_mode} blackout_mode={self.blackout_mode} "
+            f"unet_trained={self.unet_is_trained} device={self.device}"
         )
 
     def predict_and_save(
@@ -159,7 +196,10 @@ class MedicalSegmentationModel:
             # sau đó cũng chạy trên ảnh ĐÃ CROP — overlay hiển thị trên khung ảnh đã crop.
             unet_input = self.transform(image=image_np)["image"]
             lung_mask = predict_lung_mask(self.unet, unet_input)
-            classifier_input_np = crop_to_lung_bbox(image_resized, lung_mask, padding=CROP_PADDING)
+            # blackout_mode: xoá pixel NGOÀI hình dạng phổi (không chỉ ngoài bounding
+            # box) — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4.
+            crop_fn = crop_to_lung_bbox_blackout if self.blackout_mode else crop_to_lung_bbox
+            classifier_input_np = crop_fn(image_resized, lung_mask, padding=CROP_PADDING)
             img_tensor = self.transform(image=classifier_input_np)["image"]
             overlay_base = cv2.resize(classifier_input_np, IMAGE_SIZE)
         else:
@@ -224,7 +264,12 @@ class MedicalSegmentationModel:
 
         elapsed_ms = round((time.time() - t0) * 1000, 1)
 
-        aggregate = AGGREGATE_METRICS_CROPPED if self.crop_mode else AGGREGATE_METRICS_BASELINE
+        if self.blackout_mode:
+            aggregate = AGGREGATE_METRICS_BLACKOUT
+        elif self.crop_mode:
+            aggregate = AGGREGATE_METRICS_CROPPED
+        else:
+            aggregate = AGGREGATE_METRICS_BASELINE
         metrics = dict(aggregate)
         metrics["iou_score"] = round(float(iou_score), 3)
         metrics["affected_lung_area"] = round(affected_lung_area, 1)

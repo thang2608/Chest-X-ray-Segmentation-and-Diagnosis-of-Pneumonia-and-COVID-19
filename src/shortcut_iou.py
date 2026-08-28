@@ -16,6 +16,7 @@ from src.dataset import (
     IDX_TO_CLASS,
     ChestXrayClassificationDataset,
     crop_to_lung_bbox,
+    crop_to_lung_bbox_blackout,
     get_val_transforms,
 )
 from src.gradcam import generate_gradcam
@@ -102,6 +103,7 @@ def run_shortcut_analysis(
     device: Optional[str] = None,
     crop_to_lung: bool = False,
     crop_padding: float = 0.1,
+    blackout: bool = False,
 ) -> tuple[dict[str, list[float]], list[dict]]:
     """Trả về (ious_per_class, records); đồng thời lưu toàn bộ records ra CSV trong
     figures/ (mỗi lần gọi, không cần chạy lại Grad-CAM cho các phân tích sau này).
@@ -128,6 +130,12 @@ def run_shortcut_analysis(
         bởi hiệu ứng này nhất, nên ưu tiên khi so sánh trước/sau, là **% ảnh IoU=0
         tuyệt đối** (đo việc heatmap có giao nhau với phổi hay không, không phụ
         thuộc tỉ lệ diện tích tương đối). Xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md.
+
+    blackout: chỉ có tác dụng khi crop_to_lung=True — dùng crop_to_lung_bbox_blackout()
+        thay vì crop_to_lung_bbox() (xoá hẳn pixel ngoài hình dạng phổi thật, không chỉ
+        cắt theo bounding box). Đánh giá phiên bản classifier train từ
+        notebooks/train_classifier_blackout.ipynb (weights/best_classifier_blackout.pth)
+        — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4 / Phần 6 đề xuất 3.
     """
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -158,9 +166,11 @@ def run_shortcut_analysis(
             lung_mask = predict_lung_mask(unet, full_tensor)
 
         if crop_to_lung:
-            image_for_model = crop_to_lung_bbox(image_np, lung_mask, padding=crop_padding)
+            crop_fn = crop_to_lung_bbox_blackout if blackout else crop_to_lung_bbox
+            image_for_model = crop_fn(image_np, lung_mask, padding=crop_padding)
             # Cắt CHÍNH mask đó theo cùng box — để so khớp đúng hệ toạ độ với heatmap
-            # (xem cảnh báo về hiệu ứng hình học trong docstring ở trên).
+            # (xem cảnh báo về hiệu ứng hình học trong docstring ở trên). Blackout không
+            # đổi compare_mask (mask nhị phân không có khái niệm "đen" — chỉ ảnh mới có).
             compare_mask = crop_to_lung_bbox(lung_mask, lung_mask, padding=crop_padding)
         else:
             image_for_model = image_np
@@ -189,8 +199,11 @@ def run_shortcut_analysis(
         ious_per_class[cls_name].append(score)
         records.append({"path": path, "class": cls_name, "iou": score, "containment": cont})
 
-    tag = f"{mask_source}{'_cropped' if crop_to_lung else ''}"
-    print(f"\n===== Mask source: {mask_source} | crop_to_lung={crop_to_lung} | thresh={gradcam_thresh} =====")
+    tag = f"{mask_source}{'_cropped' if crop_to_lung else ''}{'_blackout' if (crop_to_lung and blackout) else ''}"
+    print(
+        f"\n===== Mask source: {mask_source} | crop_to_lung={crop_to_lung} | "
+        f"blackout={blackout} | thresh={gradcam_thresh} ====="
+    )
     for cls in ious_per_class:
         arr = np.array(ious_per_class[cls])
         conts = np.array([r["containment"] for r in records if r["class"] == cls])
@@ -218,7 +231,10 @@ def run_shortcut_analysis(
         ax.hist(scores, bins=20, alpha=0.5, label=cls)
     ax.set_xlabel("IoU(Grad-CAM, lung mask)")
     ax.set_ylabel("Count")
-    ax.set_title(f"Shortcut analysis — mask={mask_source}, crop={crop_to_lung}, thresh={gradcam_thresh}")
+    ax.set_title(
+        f"Shortcut analysis — mask={mask_source}, crop={crop_to_lung}, "
+        f"blackout={blackout}, thresh={gradcam_thresh}"
+    )
     ax.legend()
     fig.tight_layout()
     fig.savefig(figures_dir / f"shortcut_iou_{tag}_t{gradcam_thresh}.png", dpi=120)
@@ -264,4 +280,27 @@ if __name__ == "__main__":
     #     mask_source="unet",
     #     gradcam_thresh=0.5,
     #     crop_to_lung=True,
+    # )
+
+    # Bản BLACKOUT (sau khi train notebooks/train_classifier_blackout.ipynb và có
+    # weights/best_classifier_blackout.pth) — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md
+    # Phần 5.4 / Phần 6 đề xuất 3. Bỏ comment 2 lệnh dưới để so sánh với bản cropped:
+    #
+    # run_shortcut_analysis(
+    #     classifier_path="weights/best_classifier_blackout.pth",
+    #     unet_path="weights/best_unet.pth",
+    #     test_split_dir="data/split/test",
+    #     mask_source="gt",
+    #     gradcam_thresh=0.5,
+    #     crop_to_lung=True,
+    #     blackout=True,
+    # )
+    # run_shortcut_analysis(
+    #     classifier_path="weights/best_classifier_blackout.pth",
+    #     unet_path="weights/best_unet.pth",
+    #     test_split_dir="data/split/test",
+    #     mask_source="unet",
+    #     gradcam_thresh=0.5,
+    #     crop_to_lung=True,
+    #     blackout=True,
     # )

@@ -139,27 +139,49 @@ Kỳ vọng: `data/split/{train,val,test}/images/` có tổng cộng ~9000 ảnh
 
 ---
 
-## Bước E — Chạy 2 notebook train
+## Bước E — Chạy notebook train
 
-### E.1. KHÔNG mở file `.ipynb` riêng qua Files pane — dùng `%run` ngay trong notebook thiết lập
+### E.1. `%run` KHÔNG hoạt động với file `.ipynb` — dùng `nbformat` + `exec()` thay thế
 
-Bấm vào `train_classifier.ipynb`/`train_unet.ipynb` trong Files pane (📁 bên trái) chỉ mở ra **panel xem trước** (preview tĩnh, có ô "Raw source", cell ghi `<undefined>`) — **không kết nối runtime nào**, không chạy được gì. Cách chắc chắn nhất: ở lại notebook thiết lập (nơi đã `git clone`/tải dataset — đừng đóng nó), thêm cell mới, chạy:
+⚠️ **Đã gặp lỗi thật, đừng dùng cách này:** `%run notebooks/train_classifier.ipynb` báo lỗi
+`OSError: File 'notebooks/train_classifier.ipynb.py' not found` — lệnh magic `%run` của
+IPython **chỉ hỗ trợ file `.py`**, tự động thêm đuôi `.py` vào bất kỳ tên file nào không có
+đuôi thực thi được, kể cả khi bạn gõ rõ `.ipynb`.
+
+Cũng **không** mở file qua Files pane (📁 bên trái) — bấm vào `.ipynb` chỉ ra **panel xem
+trước** tĩnh (cell ghi `<undefined>`), không kết nối runtime, không chạy được gì.
+
+**Cách đúng, đã kiểm chứng chạy được:** ở lại notebook thiết lập (nơi đã `git clone`/tải
+dataset — đừng đóng nó), thêm cell mới, chạy:
 
 ```python
-%run notebooks/train_classifier.ipynb
+!pip install -q nbformat   # vô hại nếu Colab đã có sẵn
+
+import nbformat
+
+def run_notebook(path: str):
+    """Đọc file .ipynb bằng nbformat, thực thi TỪNG cell code lần lượt bằng exec()
+    ngay trong runtime hiện tại (biến, import, dataset đã tải đều dùng chung) —
+    đúng hành vi 'chạy cả notebook' mà %run KHÔNG làm được với .ipynb."""
+    nb = nbformat.read(path, as_version=4)
+    for cell in nb.cells:
+        if cell.cell_type == "code":
+            exec(cell.source, globals())
+
+run_notebook("notebooks/train_classifier.ipynb")
 ```
 
-Lệnh `%run` thực thi toàn bộ cell của file đó **ngay trong runtime hiện tại** — dataset, package, `data/split/` đã có sẵn (không cần clone/cài lại), output (progress bar, log epoch, hình vẽ) hiện ngay trong cell. Sau khi chạy xong, lặp lại với:
+Sau khi chạy xong, lặp lại với notebook khác (đổi đường dẫn), ví dụ:
 ```python
-%run notebooks/train_unet.ipynb
+run_notebook("notebooks/train_unet.ipynb")
 ```
 
-### E.2. (Tuỳ chọn) Thêm 1 cell "an toàn" trước khi `%run`, phòng lỡ ở nhầm thư mục
+### E.2. (Tuỳ chọn) Thêm 1 cell "an toàn" trước khi gọi `run_notebook`, phòng lỡ ở nhầm thư mục
 
 ```python
 %cd /content/Chest-X-ray-Segmentation-and-Diagnosis-of-Pneumonia-and-COVID-19
 ```
-Vô hại nếu đã đúng thư mục; báo lỗi ngay (`No such file or directory`) nếu vì lý do gì đó chưa đúng — giúp phát hiện sớm thay vì gặp `ModuleNotFoundError: No module named 'src'` khó hiểu khi `%run` chạy tới cell import bên trong.
+Vô hại nếu đã đúng thư mục; báo lỗi ngay (`No such file or directory`) nếu vì lý do gì đó chưa đúng — giúp phát hiện sớm thay vì gặp `ModuleNotFoundError: No module named 'src'` khó hiểu khi `run_notebook()` chạy tới cell import bên trong.
 
 ### E.3. Nội dung khi chạy — `train_classifier.ipynb` có 10 cell, theo `docs/TUTORIAL.md` Phần 8:
 
@@ -177,11 +199,27 @@ Vô hại nếu đã đúng thư mục; báo lỗi ngay (`No such file or direct
 
 Cell 8 (3 pha, tối đa 3+15+5=23 epoch, có early stopping) là lâu nhất — trên T4, mỗi epoch thường **30 giây–1.5 phút** → cả notebook khoảng **15-40 phút**.
 
-Sau khi thấy `BEST VAL MACRO F1: 0.xxxx`, chạy tiếp `%run notebooks/train_unet.ipynb` (1 pha, tối đa 25 epoch, theo dõi Dice/IoU — nhẹ hơn, khoảng **10-25 phút**).
+Sau khi thấy `BEST VAL MACRO F1: 0.xxxx`, chạy tiếp `run_notebook("notebooks/train_unet.ipynb")` (1 pha, tối đa 25 epoch, theo dõi Dice/IoU — nhẹ hơn, khoảng **10-25 phút**).
 
 ### E.4. Phát hiện lỗi sớm
 
-`%run` chạy nguyên cả file — nếu 1 cell bên trong lỗi, traceback hiện ra sẽ chỉ đúng dòng/cell gây lỗi trong `train_classifier.ipynb`/`train_unet.ipynb` (đọc kỹ thông báo lỗi, đối chiếu với bảng cell ở trên để biết đang hỏng ở bước nào). Nếu cần debug sâu hơn theo kiểu chạy từng cell một: copy nội dung các cell nghi vấn từ file `.ipynb` (mở bằng Read/editor bất kỳ, hoặc xem trong Files pane) dán thành các cell riêng trong chính notebook thiết lập, chạy từng cell bằng `Shift+Enter` — đảm bảo chắc chắn dùng đúng runtime đang có sẵn dataset/package, không phụ thuộc cách Colab xử lý file preview.
+`run_notebook()` chạy tuần tự từng cell — nếu 1 cell lỗi, traceback hiện ra chỉ đúng dòng gây lỗi trong file `.ipynb` tương ứng (đọc kỹ thông báo lỗi, đối chiếu với bảng cell ở trên để biết đang hỏng ở bước nào). Nếu cần debug sâu hơn theo kiểu chạy từng cell một: copy nội dung các cell nghi vấn từ file `.ipynb` (mở bằng Read/editor bất kỳ, hoặc xem trong Files pane) dán thành các cell riêng trong chính notebook thiết lập, chạy từng cell bằng `Shift+Enter` — đảm bảo chắc chắn dùng đúng runtime đang có sẵn dataset/package, không phụ thuộc cách Colab xử lý file preview.
+
+### E.5. Train thêm biến thể classifier (cropped / blackout) — KHÔNG cần lặp lại Bước C/D
+
+`train_classifier_cropped.ipynb` và `train_classifier_blackout.ipynb` dùng CHUNG `data/split/`
+đã tạo ở Bước D (đọc mask ground-truth trực tiếp từ `data/split/*/masks/`, **không cần**
+`weights/best_unet.pth`) — nếu vẫn đang ở cùng runtime Colab vừa chạy xong Bước D (hoặc vừa
+train xong 1 biến thể khác), chỉ cần chạy thẳng:
+
+```python
+run_notebook("notebooks/train_classifier_blackout.ipynb")
+```
+
+Nếu là phiên Colab MỚI (session trước đã bị ngắt) thì vẫn phải làm lại đủ Bước B→D trước
+(clone lại repo — nhớ `git pull` hoặc clone lại để có notebook mới nhất trên branch `demo`
+— rồi tải/giải nén/preprocess/split dataset) vì mọi thứ trong `/content` mất sạch khi
+runtime bị thu hồi.
 
 ---
 
@@ -189,11 +227,16 @@ Sau khi thấy `BEST VAL MACRO F1: 0.xxxx`, chạy tiếp `%run notebooks/train_
 
 ```python
 from google.colab import files
-files.download("weights/best_classifier.pth")
-files.download("weights/best_unet.pth")
+files.download("weights/best_classifier.pth")        # bản baseline (nếu vừa train)
+files.download("weights/best_classifier_cropped.pth")   # bản crop (nếu vừa train)
+files.download("weights/best_classifier_blackout.pth")  # bản blackout (nếu vừa train)
+files.download("weights/best_unet.pth")               # chỉ cần train 1 lần, dùng chung
 ```
 
-Copy 2 file này vào thư mục `weights/` ở máy local — đúng vị trí `api/inference.py` đã viết sẵn để tự động load. Không cần sửa code: `load_models()` sẽ tự phát hiện file tồn tại và chuyển từ chế độ "chưa train" (backbone ImageNet + head ngẫu nhiên) sang dùng weights thật.
+Copy các file tải về vào thư mục `weights/` ở máy local — đúng vị trí `api/inference.py`
+và `backend/app/services/ai_engine.py` đã viết sẵn để tự động load, ưu tiên theo thứ tự
+**blackout > cropped > baseline** (file "tối ưu nhất" đang có). Không cần sửa code:
+`load_models()`/`MedicalSegmentationModel.__init__()` tự phát hiện file tồn tại.
 
 ---
 

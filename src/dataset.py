@@ -94,6 +94,48 @@ def crop_to_lung_bbox(image: np.ndarray, mask: np.ndarray, padding: float = 0.1)
     return image[y0:y1, x0:x1]
 
 
+# ---- Blackout vùng ngoài mask phổi (bổ sung cho crop_to_lung_bbox) ----
+def blackout_outside_mask(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Đặt về 0 (đen) mọi pixel NGOÀI vùng phổi (`mask == 0`).
+
+    `crop_to_lung_bbox` chỉ cắt theo HÌNH CHỮ NHẬT bao quanh phổi — mọi vật thể nằm
+    TRONG hình chữ nhật đó (watermark, logo, chữ, thiết bị y tế...) nhưng NGOÀI hình
+    dạng phổi thật vẫn được giữ nguyên, và vẫn có thể gây shortcut learning. Đã xác
+    nhận bằng đo đạc thật: xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4 (ca cụ thể
+    `sample_covid.png`: containment=0.499 — gần một nửa vùng Grad-CAM nằm ngoài phổi
+    dù đã train trên ảnh crop). Hàm này giải quyết đúng khoảng hở đó bằng cách xoá hẳn
+    pixel ngoài mask, không chỉ dựa vào bounding box.
+
+    Args:
+        image: (H, W, 3) hoặc (H, W) — ảnh cần xử lý, CÙNG kích thước với mask.
+        mask: (H, W) — mask nhị phân (giá trị >0 = phổi).
+
+    Returns:
+        Ảnh cùng kích thước, pixel ngoài mask = 0. Trả nguyên `image` không đổi nếu
+        `mask` rỗng (an toàn, tránh trả về ảnh đen toàn bộ vô nghĩa — giống quy ước
+        của crop_to_lung_bbox() ở trên).
+    """
+    if mask.sum() == 0:
+        return image
+    out = image.copy()
+    out[mask == 0] = 0
+    return out
+
+
+def crop_to_lung_bbox_blackout(image: np.ndarray, mask: np.ndarray, padding: float = 0.1) -> np.ndarray:
+    """Kết hợp blackout_outside_mask() + crop_to_lung_bbox(): vừa loại bỏ vật thể ngoài
+    hình dạng phổi thật (kể cả khi nó nằm trong bounding box), vừa giữ khung hình gọn
+    quanh phổi thay vì để nguyên viền đen lớn của toàn ảnh gốc.
+
+    Thứ tự: blackout TRƯỚC (trên ảnh đầy đủ, dùng mask gốc) rồi mới crop theo CÙNG
+    mask đó — đảm bảo bounding box tính giống hệt crop_to_lung_bbox() thường (không
+    đổi kích thước khung hình so với bản crop hiện tại, chỉ thêm bước xoá pixel ngoài
+    mask), nên có thể so sánh ablation trực tiếp giữa 2 bản.
+    """
+    blacked = blackout_outside_mask(image, mask)
+    return crop_to_lung_bbox(blacked, mask, padding=padding)
+
+
 # ---- Parse label từ prefix filename ----
 def _parse_label(filename: str) -> int:
     """
@@ -112,6 +154,7 @@ class ChestXrayClassificationDataset(Dataset):
         transform: Optional[Callable] = None,
         crop_to_lung: bool = False,
         crop_padding: float = 0.1,
+        blackout: bool = False,
     ):
         """
         crop_to_lung: nếu True, cắt ảnh theo bounding box mask phổi (ground-truth,
@@ -120,8 +163,14 @@ class ChestXrayClassificationDataset(Dataset):
             docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md, notebooks/train_classifier_cropped.ipynb).
             Mặc định False — KHÔNG đổi hành vi các chỗ đã dùng class này trước đó
             (src/shortcut_iou.py, notebooks/evaluate_local.ipynb, train_classifier.ipynb).
-        crop_padding: truyền thẳng cho crop_to_lung_bbox(), chỉ có tác dụng khi
-            crop_to_lung=True.
+        crop_padding: truyền thẳng cho crop_to_lung_bbox()/crop_to_lung_bbox_blackout(),
+            chỉ có tác dụng khi crop_to_lung=True.
+        blackout: nếu True (VÀ crop_to_lung=True), dùng crop_to_lung_bbox_blackout()
+            thay vì crop_to_lung_bbox() — xoá hẳn pixel ngoài hình dạng phổi thật thay
+            vì chỉ cắt theo bounding box (xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4
+            và Phần 6 đề xuất 3 — bounding box vẫn giữ watermark/vật thể nằm TRONG box
+            nhưng NGOÀI phổi). Không có tác dụng nếu crop_to_lung=False. Mặc định False
+            — không đổi hành vi bản crop hiện có.
         """
         self.image_dir = Path(split_dir) / "images"
         self.mask_dir = Path(split_dir) / "masks"
@@ -129,6 +178,7 @@ class ChestXrayClassificationDataset(Dataset):
         self.transform = transform
         self.crop_to_lung = crop_to_lung
         self.crop_padding = crop_padding
+        self.blackout = blackout
         if len(self.image_paths) == 0:
             raise RuntimeError(f"No PNG found in {self.image_dir}")
         print(f"📊 Dataset loaded: {len(self.image_paths)} images from {split_dir}")
@@ -142,7 +192,11 @@ class ChestXrayClassificationDataset(Dataset):
         label = _parse_label(path.name)
         if self.crop_to_lung:
             mask = np.array(Image.open(self.mask_dir / path.name).convert("L"))
-            image = crop_to_lung_bbox(image, (mask > 0).astype(np.uint8), padding=self.crop_padding)
+            mask_bin = (mask > 0).astype(np.uint8)
+            if self.blackout:
+                image = crop_to_lung_bbox_blackout(image, mask_bin, padding=self.crop_padding)
+            else:
+                image = crop_to_lung_bbox(image, mask_bin, padding=self.crop_padding)
         if self.transform:
             image = self.transform(image=image)["image"]
         return image, label

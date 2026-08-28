@@ -23,7 +23,14 @@ import numpy as np
 import torch
 from PIL import Image
 
-from src.dataset import IDX_TO_CLASS, IMAGE_SIZE, NUM_CLASSES, crop_to_lung_bbox, get_val_transforms
+from src.dataset import (
+    IDX_TO_CLASS,
+    IMAGE_SIZE,
+    NUM_CLASSES,
+    crop_to_lung_bbox,
+    crop_to_lung_bbox_blackout,
+    get_val_transforms,
+)
 from src.gradcam import generate_gradcam, overlay_heatmap
 from src.model import build_classifier, load_classifier
 from src.shortcut_iou import binarize, containment, dice, iou, predict_lung_mask
@@ -33,6 +40,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WEIGHTS_PATH = Path("weights/best_classifier.pth")
 CROPPED_WEIGHTS_PATH = Path("weights/best_classifier_cropped.pth")  # bản "đã tối ưu" — xem
 # notebooks/train_classifier_cropped.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.
+BLACKOUT_WEIGHTS_PATH = Path("weights/best_classifier_blackout.pth")  # bản "tối ưu hơn nữa" —
+# xoá hẳn pixel ngoài hình dạng phổi (không chỉ crop bounding box), xem
+# notebooks/train_classifier_blackout.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4/6.
 UNET_WEIGHTS_PATH = Path("weights/best_unet.pth")
 DATA_PROCESSED_DIR = Path("data/processed")
 DATASET_CLASSES = ("COVID", "Lung_Opacity", "Normal")
@@ -46,6 +56,9 @@ _transform = get_val_transforms()
 _model_is_trained: bool = False
 _unet_is_trained: bool = False
 _crop_mode: bool = False  # True nếu đang dùng classifier bản train trên ảnh crop theo mask
+                          # (cropped HOẶC blackout — cả 2 đều cần luồng "U-Net trước, crop sau")
+_blackout_mode: bool = False  # True CHỈ khi đang dùng bản blackout cụ thể (thêm bước xoá
+                               # pixel ngoài mask, không chỉ crop bounding box — xem _crop_mode)
 
 BASE_DISCLAIMER = (
     "Kết quả chỉ mang tính tham khảo, KHÔNG thay thế chẩn đoán y khoa chính thức. "
@@ -61,15 +74,31 @@ UNTRAINED_WARNING = (
 def load_models() -> None:
     """Gọi 1 lần lúc server khởi động (xem api/main.py::lifespan).
 
-    Ưu tiên tự động dùng bản "đã tối ưu" (CROPPED_WEIGHTS_PATH) nếu file đó tồn tại —
-    nếu chưa có (đúng trạng thái hiện tại, chưa train phiên bản crop), hành vi giữ
-    NGUYÊN VẸN như trước: dùng WEIGHTS_PATH (baseline), _crop_mode=False. Nghĩa là code
-    này AN TOÀN để merge ngay bây giờ — không đổi hành vi demo hiện tại cho tới khi
-    weights/best_classifier_cropped.pth thực sự xuất hiện.
+    Ưu tiên tự động theo thứ tự: BLACKOUT_WEIGHTS_PATH > CROPPED_WEIGHTS_PATH >
+    WEIGHTS_PATH (baseline) — dùng bản "tối ưu nhất" đang có, fallback dần xuống nếu
+    file không tồn tại hoặc load lỗi. Nếu chưa có bản nào ngoài baseline (đúng trạng
+    thái trước khi train blackout), hành vi giữ NGUYÊN VẸN như trước. Code này AN TOÀN
+    để merge ngay bây giờ — không đổi hành vi demo hiện tại cho tới khi
+    weights/best_classifier_blackout.pth thực sự xuất hiện.
     """
-    global _classifier, _model_is_trained, _unet, _unet_is_trained, _crop_mode
+    global _classifier, _model_is_trained, _unet, _unet_is_trained, _crop_mode, _blackout_mode
 
-    if CROPPED_WEIGHTS_PATH.exists():
+    if BLACKOUT_WEIGHTS_PATH.exists():
+        try:
+            _classifier = load_classifier(
+                str(BLACKOUT_WEIGHTS_PATH), num_classes=NUM_CLASSES, device=DEVICE, verbose=True
+            )
+            _model_is_trained = True
+            _crop_mode = True
+            _blackout_mode = True
+            print(f"[inference] OK: loaded OPTIMIZED (blackout) classifier from {BLACKOUT_WEIGHTS_PATH} on device={DEVICE}")
+        except Exception as exc:
+            print(
+                f"[inference] WARNING: found {BLACKOUT_WEIGHTS_PATH} but failed to load it "
+                f"({type(exc).__name__}: {exc}) — falling back to cropped/baseline classifier."
+            )
+
+    if _classifier is None and CROPPED_WEIGHTS_PATH.exists():
         try:
             _classifier = load_classifier(
                 str(CROPPED_WEIGHTS_PATH), num_classes=NUM_CLASSES, device=DEVICE, verbose=True
@@ -90,6 +119,7 @@ def load_models() -> None:
             )
             _model_is_trained = True
             _crop_mode = False
+            _blackout_mode = False
             print(f"[inference] OK: loaded trained classifier from {WEIGHTS_PATH} on device={DEVICE}")
         except Exception as exc:
             # File tồn tại nhưng không load được (hỏng / sai kiến trúc / mid-write) —
@@ -110,6 +140,7 @@ def load_models() -> None:
         _classifier.to(DEVICE).eval()
         _model_is_trained = False
         _crop_mode = False
+        _blackout_mode = False
 
     if UNET_WEIGHTS_PATH.exists():
         try:
@@ -178,9 +209,13 @@ def predict_image(pil_image: Image.Image, filename: Optional[str] = None) -> dic
         # đưa vào classifier (classifier này được train trên ảnh đã crop — xem
         # notebooks/train_classifier_cropped.ipynb). Grad-CAM sau đó cũng chạy trên
         # ảnh ĐÃ CROP, nên overlay hiển thị trên khung ảnh đã crop, không phải ảnh gốc.
+        # _blackout_mode=True: dùng thêm crop_to_lung_bbox_blackout — xoá pixel NGOÀI
+        # hình dạng phổi (không chỉ ngoài bounding box) — xem
+        # notebooks/train_classifier_blackout.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4.
         unet_input = _transform(image=image_np)["image"]
         lung_mask = predict_lung_mask(_unet, unet_input)
-        classifier_input_np = crop_to_lung_bbox(image_resized, lung_mask, padding=CROP_PADDING)
+        crop_fn = crop_to_lung_bbox_blackout if _blackout_mode else crop_to_lung_bbox
+        classifier_input_np = crop_fn(image_resized, lung_mask, padding=CROP_PADDING)
         img_tensor = _transform(image=classifier_input_np)["image"]
         overlay_base = cv2.resize(classifier_input_np, IMAGE_SIZE)
     else:

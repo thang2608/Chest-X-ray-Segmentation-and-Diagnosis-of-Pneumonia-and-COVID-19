@@ -149,6 +149,34 @@ Kiểm tra chéo `gt` vs `unet` mask source sau crop vẫn khớp nhau chặt (C
 
 Crop-to-lung là cải thiện **thật và đáng kể** (đặc biệt accuracy tổng thể +2.45 điểm và Lung_Opacity), đã tích hợp làm bản chính thức trong `backend/app/services/ai_engine.py` (tự động ưu tiên dùng nếu `weights/best_classifier_cropped.pth` tồn tại). Tuy nhiên **không phải giải pháp triệt để cho toàn bộ vấn đề shortcut learning ở lớp COVID** — cần ghi rõ đây là hạn chế còn lại trong báo cáo/luận văn, không phóng đại thành "đã giải quyết xong".
 
+![So sánh % ảnh IoU=0 theo lớp — trước/sau crop, cả 2 nguồn mask](../figures/compare_pct_iou_zero.png)
+
+![Phân phối containment theo lớp — trước/sau crop](../figures/compare_containment_box.png)
+
+### 5.4. Điều tra sâu — vì sao crop bounding box không loại bỏ hết shortcut (giải mục 6, đề xuất 2 cũ)
+
+**Câu hỏi:** classifier crop đã train trên ảnh cắt theo mask phổi, vậy tại sao Grad-CAM demo thực tế (`backend/frontend`, ảnh `sample_covid.png`) vẫn sáng rõ ở vùng ngoài phổi?
+
+**Nguyên nhân xác nhận bằng đo đạc trực tiếp** (chạy lại đúng pipeline `backend/app/services/ai_engine.py` dùng, không phải suy đoán): `crop_to_lung_bbox` cắt theo **hình chữ nhật bao quanh phổi** (bounding box), không cắt theo đúng **hình dạng phổi**. Mọi pixel nằm trong hình chữ nhật đó — kể cả watermark/logo — vẫn được giữ nguyên nếu nó rơi vào trong box.
+
+Đo trên `sample_covid.png` (U-Net tự dự đoán mask, đúng luồng khi phục vụ ảnh mới không có ground-truth):
+
+| Đại lượng | Giá trị |
+|---|---|
+| Bbox mask phổi (chưa đệm), khung 224×224 | y[30:172] x[32:197] |
+| Bbox **sau đệm biên 10%** (dùng để crop) | y[16:187] x[16:214] — gần sát viền ảnh |
+| Vùng góc trên-trái 40×49px | 0 pixel mask phổi, nhưng vẫn **nằm trọn trong bbox crop** |
+| IoU(Grad-CAM, mask phổi) sau crop | 0.202 |
+| Containment (% vùng Grad-CAM nằm ngoài phổi) | 0.499 — gần một nửa |
+
+![Ca cụ thể: bbox crop vẫn giữ vùng ngoài phổi, Grad-CAM vẫn sáng ở đó](../figures/case_study_bbox_leak.png)
+
+**2 nguyên nhân cộng hưởng:**
+1. Đệm biên 10% (thêm chủ đích để tránh cắt mất mô phổi thật ở rìa) đồng thời là kẽ hở cho vật thể gần rìa phổi lọt qua nguyên vẹn.
+2. Lúc phục vụ ảnh mới, bbox dựa trên mask **U-Net tự dự đoán** (không phải ground-truth) — nếu mask hơi rộng hơn thực tế, bbox càng nới sát viền ảnh hơn.
+
+**Kết luận:** khớp đúng số liệu tổng thể ở mục 5.2 (COVID vẫn còn 19.6% ảnh IoU=0 sau crop) — đây không phải ca cá biệt mà là hệ quả tất yếu của việc dùng bounding box thay vì mask thật. Xác nhận hướng xử lý tiếp theo đúng là **mask-shaped blackout** (mục 6, đề xuất 3) chứ không phải chỉnh lại tỉ lệ đệm biên.
+
 ---
 
 ## 6. Đề xuất hướng xử lý còn lại
@@ -156,11 +184,11 @@ Crop-to-lung là cải thiện **thật và đáng kể** (đặc biệt accurac
 ### Đã thực hiện
 
 1. ~~Crop/che nền bằng mask U-Net trước khi đưa vào classifier, train lại~~ — **XONG**, xem mục 5. Cải thiện rõ nhưng chưa triệt để với COVID.
+2. ~~Điều tra trực tiếp các ảnh COVID vẫn còn IoU=0 sau crop~~ — **XONG**, xem mục 5.4. Xác nhận nguyên nhân: crop bounding box giữ nguyên mọi pixel trong hình chữ nhật (kể cả ngoài phổi thật), không phải lỗi U-Net hay watermark nằm ở vị trí đặc biệt.
 
-### Ưu tiên cao — còn lại cho COVID (xem 5.2)
+### Ưu tiên cao — còn lại cho COVID (xem 5.2, 5.4)
 
-2. **Điều tra trực tiếp các ảnh COVID vẫn còn IoU=0 sau crop** (danh sách đầy đủ trong `figures/shortcut_records_gt_cropped_t0.5.csv`, lọc `class=COVID` và `iou=0`) — xác nhận watermark có thực sự nằm giữa khung hình (không loại được bằng crop bounding box) hay do nguyên nhân khác (ví dụ U-Net dự đoán sai mask cho chính các ảnh này).
-3. **Che (blackout) chính xác theo hình dạng mask thay vì chỉ crop bounding box** — loại bỏ được watermark nằm giữa 2 lá phổi (trong box nhưng ngoài mask thật), điều mà crop hình chữ nhật không làm được. Đánh đổi: độ phân giải hiệu quả không tăng như crop (đã bàn ở `docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md` cũ, mục đề xuất 1) — có thể thử làm ablation riêng, so với bản crop hiện tại.
+3. **Che (blackout) chính xác theo hình dạng mask thay vì chỉ crop bounding box** — loại bỏ được watermark nằm giữa 2 lá phổi hoặc gần rìa (trong box nhưng ngoài mask thật), điều mà crop hình chữ nhật không làm được (xem 5.4). Đánh đổi: độ phân giải hiệu quả không tăng bằng crop thuần (mất thêm diện tích thành nền đen) — làm ablation riêng, so trực tiếp với bản crop hiện tại bằng `src/shortcut_iou.py`.
 
 ### Ưu tiên trung bình
 
@@ -186,3 +214,8 @@ Crop-to-lung là cải thiện **thật và đáng kể** (đặc biệt accurac
 **Dùng chung cả 2 bản:**
 - `weights/best_unet.pth` — không train lại, không đổi giữa 2 bản.
 - `notebooks/evaluate_local.ipynb` — chạy lại để lấy số liệu test set chính thức (mục 6, đề xuất 5).
+
+**Biểu đồ so sánh trước/sau (mục 5.2, 5.4 — sinh bởi `src/plot_shortcut_comparison.py`, đọc lại 4 CSV trên, không cần chạy lại model):**
+- `figures/compare_pct_iou_zero.png` — % ảnh IoU=0 theo lớp, trước/sau, cả 2 nguồn mask.
+- `figures/compare_containment_box.png` — phân phối containment theo lớp, trước/sau.
+- `figures/case_study_bbox_leak.png` — ca cụ thể minh hoạ nguyên nhân (mục 5.4), sinh từ script chẩn đoán một lần (không lưu lại trong repo, chỉ lưu ảnh kết quả).
