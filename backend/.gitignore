@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Uploaded images (giữ lại .gitkeep)
+uploads/raw/*
+!uploads/raw/.gitkeep
+uploads/results/*
+!uploads/results/.gitkeep
+uploads/heatmaps/*
+!uploads/heatmaps/.gitkeep
+
+# Weights (giữ lại .gitkeep)
+weights/*.pt
+weights/*.onnx
+weights/*.pth
+!weights/.gitkeep
+
+# SQLite Database
+*.db
+*.sqlite3
+*.db-journal
+
+# Environment
+.env
+.venv
+venv/
