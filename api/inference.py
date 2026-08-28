@@ -1,9 +1,16 @@
 """Load model 1 lần lúc startup, cung cấp predict_image() dùng chung cho api/main.py.
 
-Nếu weights/best_classifier.pth chưa tồn tại (chưa train), tự động fallback sang
-backbone EfficientNet-B3 pretrained ImageNet + head khởi tạo ngẫu nhiên, để backend
-vẫn khởi động và phục vụ được — dự đoán khi đó vô nghĩa nhưng đúng shape/HTTP contract,
-đủ để test luồng API/UI trước khi có model thật. Xem docs/QUY_TRINH_CODE.md Phần 8.3-8.4.
+Nếu weights/best_classifier.pth hoặc weights/best_unet.pth chưa tồn tại (chưa train),
+tự động fallback sang backbone pretrained ImageNet (đầu ra ngẫu nhiên với classifier,
+mask vô nghĩa với U-Net), để backend vẫn khởi động và phục vụ được — dự đoán khi đó
+không có ý nghĩa nhưng đúng shape/HTTP contract, đủ để test luồng API/UI trước khi có
+model thật. Xem docs/QUY_TRINH_CODE.md Phần 8.3-8.4.
+
+Ngoài classifier, còn load U-Net để tính "độ tin cậy giải thích": so khớp Grad-CAM
+heatmap với mask phổi U-Net dự đoán bằng IoU/containment (cùng công thức dùng trong
+src/shortcut_iou.py để kiểm định shortcut learning toàn tập test) — trả về NGAY trong
+mỗi response, biến việc kiểm định thành một chỉ số minh bạch cho người dùng cuối, không
+chỉ nằm trong báo cáo. Xem docs/LY_THUYET.md Phần VIII.
 """
 
 import base64
@@ -18,13 +25,20 @@ from PIL import Image
 from src.dataset import IDX_TO_CLASS, IMAGE_SIZE, NUM_CLASSES, get_val_transforms
 from src.gradcam import generate_gradcam, overlay_heatmap
 from src.model import build_classifier, load_classifier
+from src.shortcut_iou import binarize, containment, iou, predict_lung_mask
+from src.unet import build_unet
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WEIGHTS_PATH = Path("weights/best_classifier.pth")
+UNET_WEIGHTS_PATH = Path("weights/best_unet.pth")
+GRADCAM_THRESH = 0.5
+LOW_TRUST_CONTAINMENT = 0.3  # dưới ngưỡng này: cảnh báo model có thể đang nhìn ngoài phổi
 
 _classifier = None
+_unet = None
 _transform = get_val_transforms()
 _model_is_trained: bool = False
+_unet_is_trained: bool = False
 
 BASE_DISCLAIMER = (
     "Kết quả chỉ mang tính tham khảo, KHÔNG thay thế chẩn đoán y khoa chính thức. "
@@ -39,7 +53,7 @@ UNTRAINED_WARNING = (
 
 def load_models() -> None:
     """Gọi 1 lần lúc server khởi động (xem api/main.py::lifespan)."""
-    global _classifier, _model_is_trained
+    global _classifier, _model_is_trained, _unet, _unet_is_trained
 
     if WEIGHTS_PATH.exists():
         try:
@@ -47,8 +61,7 @@ def load_models() -> None:
                 str(WEIGHTS_PATH), num_classes=NUM_CLASSES, device=DEVICE, verbose=True
             )
             _model_is_trained = True
-            print(f"[inference] OK: loaded trained weights from {WEIGHTS_PATH} on device={DEVICE}")
-            return
+            print(f"[inference] OK: loaded trained classifier from {WEIGHTS_PATH} on device={DEVICE}")
         except Exception as exc:
             # File tồn tại nhưng không load được (hỏng / sai kiến trúc / mid-write) —
             # KHÔNG để lỗi này làm sập server, rơi xuống nhánh fallback bên dưới.
@@ -63,9 +76,33 @@ def load_models() -> None:
             "be garbage; use only to verify API/UI wiring."
         )
 
-    _classifier = build_classifier(num_classes=NUM_CLASSES, pretrained=True, verbose=True)
-    _classifier.to(DEVICE).eval()
-    _model_is_trained = False
+    if _classifier is None:
+        _classifier = build_classifier(num_classes=NUM_CLASSES, pretrained=True, verbose=True)
+        _classifier.to(DEVICE).eval()
+        _model_is_trained = False
+
+    if UNET_WEIGHTS_PATH.exists():
+        try:
+            _unet = build_unet(pretrained=False, verbose=False)
+            _unet.load_state_dict(torch.load(UNET_WEIGHTS_PATH, map_location=DEVICE))
+            _unet.to(DEVICE).eval()
+            _unet_is_trained = True
+            print(f"[inference] OK: loaded trained U-Net from {UNET_WEIGHTS_PATH} on device={DEVICE}")
+        except Exception as exc:
+            print(
+                f"[inference] WARNING: found {UNET_WEIGHTS_PATH} but failed to load it "
+                f"({type(exc).__name__}: {exc}) — falling back to UNTRAINED U-Net."
+            )
+    else:
+        print(
+            f"[inference] WARNING: {UNET_WEIGHTS_PATH} does not exist — falling back to "
+            "UNTRAINED U-Net. lung_overlap_* trong response sẽ không đáng tin cậy."
+        )
+
+    if _unet is None:
+        _unet = build_unet(pretrained=True, verbose=False)
+        _unet.to(DEVICE).eval()
+        _unet_is_trained = False
 
 
 def _encode_png_base64(image_rgb: np.ndarray) -> str:
@@ -96,9 +133,28 @@ def predict_image(pil_image: Image.Image) -> dict:
     heatmap = generate_gradcam(_classifier, img_tensor, target_class=pred_idx)
     overlay = overlay_heatmap(image_resized, heatmap)
 
+    # Chỉ số tin cậy giải thích — so khớp heatmap với mask phổi U-Net dự đoán
+    # (cùng công thức src/shortcut_iou.py dùng để kiểm định shortcut learning).
+    cam_bin = binarize(heatmap, GRADCAM_THRESH)
+    lung_mask = predict_lung_mask(_unet, img_tensor)
+    overlap_iou = iou(cam_bin, lung_mask)
+    overlap_containment = containment(cam_bin, lung_mask)
+
     disclaimer = BASE_DISCLAIMER
     if not _model_is_trained:
         disclaimer = f"{disclaimer} {UNTRAINED_WARNING}"
+    if not _unet_is_trained:
+        disclaimer = (
+            f"{disclaimer} ⚠️ U-Net chưa được huấn luyện — chỉ số lung_overlap_* "
+            "bên dưới KHÔNG đáng tin cậy."
+        )
+    elif overlap_containment < LOW_TRUST_CONTAINMENT:
+        pct_outside = (1 - overlap_containment) * 100
+        disclaimer = (
+            f"{disclaimer} ⚠️ LƯU Ý: model đang tập trung khoảng {pct_outside:.0f}% vào "
+            "vùng NGOÀI phổi cho ảnh này (theo kiểm định Grad-CAM so với mask U-Net) — "
+            "kết quả có thể không đáng tin cậy, xem docs/LY_THUYET.md Phần VIII."
+        )
 
     return {
         "predicted_class": pred_class,
@@ -106,4 +162,6 @@ def predict_image(pil_image: Image.Image) -> dict:
         "probabilities": {IDX_TO_CLASS[i]: float(p) for i, p in enumerate(probs)},
         "heatmap_overlay_base64": _encode_png_base64(overlay),
         "disclaimer": disclaimer,
+        "lung_overlap_iou": overlap_iou,
+        "lung_overlap_containment": overlap_containment,
     }
