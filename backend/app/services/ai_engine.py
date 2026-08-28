@@ -6,6 +6,11 @@ copy trùng file .pth vào backend/weights/), chạy pipeline classification + G
 lung-segmentation thật. Xem docs/THAY_DOI_TICH_HOP_BACKEND.md cho đầy đủ quyết định thiết
 kế (ánh xạ field với schemas/prediction.py, vì sao chỉ 3 lớp thay vì 4, vì sao
 dice/precision/recall là số tổng hợp trên tập test thay vì tính riêng từng ảnh).
+
+Tự động ưu tiên dùng bản classifier "đã tối ưu" (train trên ảnh crop theo mask phổi —
+xem notebooks/train_classifier_cropped.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5)
+nếu weights/best_classifier_cropped.pth tồn tại; nếu không, dùng bản baseline — cùng
+nguyên tắc fallback graceful đã áp dụng xuyên suốt dự án.
 """
 
 import time
@@ -21,7 +26,7 @@ from PIL import Image
 # "import src.xxx" bên dưới hoạt động, bất kể uvicorn chạy với cwd nào.
 from app.core import config as _config  # noqa: F401  (side-effect: sys.path đã có REPO_ROOT)
 
-from src.dataset import IDX_TO_CLASS, IMAGE_SIZE, NUM_CLASSES, get_val_transforms
+from src.dataset import IDX_TO_CLASS, IMAGE_SIZE, NUM_CLASSES, crop_to_lung_bbox, get_val_transforms
 from src.gradcam import generate_gradcam, overlay_heatmap
 from src.model import build_classifier, load_classifier
 from src.shortcut_iou import binarize, containment, iou, predict_lung_mask
@@ -34,48 +39,81 @@ DISPLAY_NAME = {"Normal": "Normal", "Lung_Opacity": "Lung Opacity", "COVID": "CO
 
 GRADCAM_THRESH = 0.5
 LOW_TRUST_CONTAINMENT = 0.3  # dưới ngưỡng này: cảnh báo model có thể đang nhìn ngoài phổi
+CROP_PADDING = 0.1  # PHẢI khớp giá trị dùng lúc train notebooks/train_classifier_cropped.ipynb
 
 # Số liệu TỔNG HỢP trên val set (1350 ảnh, KHÔNG PHẢI tính riêng cho từng ảnh upload —
 # ảnh mới không có ground-truth để tính per-image) — lấy từ lần train + đánh giá gần nhất,
-# xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md. Đây là val set, CHƯA phải test set chính thức
-# (xem Phần 4.4 của báo cáo đó) — cập nhật lại 3 số này bằng notebooks/evaluate_local.ipynb
-# mỗi khi train lại model.
-AGGREGATE_METRICS = {
+# xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md. Cập nhật lại 3 số này bằng
+# notebooks/evaluate_local.ipynb mỗi khi train lại model. Có 2 bộ: baseline và bản crop
+# (đã tối ưu) — chọn đúng bộ theo self.crop_mode lúc trả metrics.
+AGGREGATE_METRICS_BASELINE = {
     "dice_score": 0.9862,   # U-Net, Val Dice
-    "precision": 0.9075,    # Classifier, Macro Precision (val set)
-    "recall": 0.9067,       # Classifier, Macro Recall (val set)
+    "precision": 0.9075,    # Classifier baseline, Macro Precision (val set)
+    "recall": 0.9067,       # Classifier baseline, Macro Recall (val set)
+}
+AGGREGATE_METRICS_CROPPED = {
+    "dice_score": 0.9862,   # U-Net không đổi (không train lại U-Net)
+    "precision": 0.9322,    # Classifier CROP, Macro Precision (val set)
+    "recall": 0.9304,       # Classifier CROP, Macro Recall (val set)
 }
 
 
 class MedicalSegmentationModel:
     """Bọc quanh classifier + U-Net thật, giữ NGUYÊN interface `predict_and_save()` mà
-    backend/app/routers/predict.py đang gọi — không đổi chữ ký hàm, không đổi
-    schemas/prediction.py."""
+    backend/app/routers/predict.py đang gọi — không đổi chữ ký hàm cũ, chỉ thêm tham số
+    tuỳ chọn `cropped_classifier_path`, không đổi schemas/prediction.py."""
 
-    def __init__(self, classifier_path: str, unet_path: str, device: Optional[str] = None):
+    def __init__(
+        self,
+        classifier_path: str,
+        unet_path: str,
+        device: Optional[str] = None,
+        cropped_classifier_path: Optional[str] = None,
+    ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.classifier_is_trained = False
         self.unet_is_trained = False
+        self.crop_mode = False
 
-        # --- Classifier: cùng cơ chế fallback graceful đã dùng trong api/inference.py ---
-        classifier_p = Path(classifier_path)
-        if classifier_p.exists():
+        # --- Classifier: ưu tiên bản "đã tối ưu" (crop) nếu có, giống cơ chế đã dùng
+        # trong api/inference.py — an toàn để merge, không đổi hành vi hiện tại nếu
+        # chưa có weights/best_classifier_cropped.pth. ---
+        if cropped_classifier_path and Path(cropped_classifier_path).exists():
             try:
                 self.classifier = load_classifier(
-                    str(classifier_p), num_classes=NUM_CLASSES, device=self.device, verbose=True
+                    cropped_classifier_path, num_classes=NUM_CLASSES, device=self.device, verbose=True
                 )
                 self.classifier_is_trained = True
+                self.crop_mode = True
+                print(f"[ai_engine] OK: dung classifier DA TOI UU (crop) tu {cropped_classifier_path}")
             except Exception as exc:
                 print(
-                    f"[ai_engine] WARNING: khong load duoc classifier tu {classifier_p} "
-                    f"({type(exc).__name__}: {exc}) - fallback backbone ImageNet pretrained."
+                    f"[ai_engine] WARNING: co {cropped_classifier_path} nhung load loi "
+                    f"({type(exc).__name__}: {exc}) - fallback ve classifier baseline."
                 )
-        else:
-            print(f"[ai_engine] WARNING: khong tim thay {classifier_p} - fallback backbone ImageNet pretrained.")
+
+        if not self.classifier_is_trained:
+            classifier_p = Path(classifier_path)
+            if classifier_p.exists():
+                try:
+                    self.classifier = load_classifier(
+                        str(classifier_p), num_classes=NUM_CLASSES, device=self.device, verbose=True
+                    )
+                    self.classifier_is_trained = True
+                    self.crop_mode = False
+                    print(f"[ai_engine] OK: dung classifier BASELINE tu {classifier_p}")
+                except Exception as exc:
+                    print(
+                        f"[ai_engine] WARNING: khong load duoc classifier tu {classifier_p} "
+                        f"({type(exc).__name__}: {exc}) - fallback backbone ImageNet pretrained."
+                    )
+            else:
+                print(f"[ai_engine] WARNING: khong tim thay {classifier_p} - fallback backbone ImageNet pretrained.")
 
         if not self.classifier_is_trained:
             self.classifier = build_classifier(num_classes=NUM_CLASSES, pretrained=True, verbose=True)
             self.classifier.to(self.device).eval()
+            self.crop_mode = False
 
         # --- U-Net: cùng cơ chế fallback ---
         unet_p = Path(unet_path)
@@ -100,7 +138,7 @@ class MedicalSegmentationModel:
         self.transform = get_val_transforms()
         print(
             f"[ai_engine] READY | classifier_trained={self.classifier_is_trained} "
-            f"unet_trained={self.unet_is_trained} device={self.device}"
+            f"crop_mode={self.crop_mode} unet_trained={self.unet_is_trained} device={self.device}"
         )
 
     def predict_and_save(
@@ -113,9 +151,22 @@ class MedicalSegmentationModel:
 
         pil_image = Image.open(image_path).convert("RGB")
         image_np = np.array(pil_image)                       # (H0,W0,3) RGB uint8
-        image_resized = cv2.resize(image_np, IMAGE_SIZE)      # (224,224,3) RGB — nền cho overlay/mask
+        image_resized = cv2.resize(image_np, IMAGE_SIZE)      # (224,224,3) RGB — ảnh gốc đã resize
 
-        img_tensor = self.transform(image=image_np)["image"]
+        if self.crop_mode:
+            # Bản ĐÃ TỐI ƯU: U-Net chạy TRƯỚC để lấy mask, dùng mask đó crop ảnh trước
+            # khi đưa vào classifier (classifier này được train trên ảnh đã crop). Grad-CAM
+            # sau đó cũng chạy trên ảnh ĐÃ CROP — overlay hiển thị trên khung ảnh đã crop.
+            unet_input = self.transform(image=image_np)["image"]
+            lung_mask = predict_lung_mask(self.unet, unet_input)
+            classifier_input_np = crop_to_lung_bbox(image_resized, lung_mask, padding=CROP_PADDING)
+            img_tensor = self.transform(image=classifier_input_np)["image"]
+            overlay_base = cv2.resize(classifier_input_np, IMAGE_SIZE)
+        else:
+            # Bản BASELINE — giữ nguyên hành vi gốc.
+            img_tensor = self.transform(image=image_np)["image"]
+            overlay_base = image_resized
+            lung_mask = None  # tính sau, dùng chung code với nhánh trên
 
         with torch.no_grad():
             logits = self.classifier(img_tensor.unsqueeze(0).to(self.device))
@@ -127,11 +178,13 @@ class MedicalSegmentationModel:
 
         # NGOÀI torch.no_grad() ở trên — Grad-CAM cần backward pass thật.
         heatmap = generate_gradcam(self.classifier, img_tensor, target_class=pred_idx)
-        heatmap_overlay = overlay_heatmap(image_resized, heatmap)  # (224,224,3) RGB
+        heatmap_overlay = overlay_heatmap(overlay_base, heatmap)  # (224,224,3) RGB
 
-        lung_mask = predict_lung_mask(self.unet, img_tensor)   # (224,224) {0,1}
-        # Mask hiển thị: tô xanh lá bán trong suốt lên vùng phổi trên nền ảnh gốc —
-        # dễ nhìn hơn mask nhị phân trần (trắng/đen).
+        if lung_mask is None:
+            lung_mask = predict_lung_mask(self.unet, img_tensor)   # (224,224) {0,1}, hệ toạ độ ẢNH GỐC
+
+        # Mask hiển thị: LUÔN vẽ trên ảnh gốc CHƯA crop (dễ hiểu hơn mask đã crop, nhìn
+        # gần như trắng xoá toàn khung) — tô xanh lá bán trong suốt lên vùng phổi.
         mask_display = image_resized.copy()
         lung_bool = lung_mask > 0
         mask_display[lung_bool] = (
@@ -141,13 +194,27 @@ class MedicalSegmentationModel:
         # Chỉ số tin cậy giải thích — so khớp heatmap với mask phổi, cùng công thức
         # src/shortcut_iou.py dùng để kiểm định shortcut learning toàn tập test.
         cam_bin = binarize(heatmap, GRADCAM_THRESH)
-        iou_score = iou(cam_bin, lung_mask)
-        cont = containment(cam_bin, lung_mask)
+        if self.crop_mode:
+            # So khớp trong ĐÚNG hệ toạ độ đã crop — cắt mask theo cùng box rồi resize
+            # khớp kích thước heatmap (luôn 224×224 sau transform, bất kể box to nhỏ).
+            # LƯU Ý: containment/affected_lung_area sau crop tự nhiên cao hơn vì hiệu ứng
+            # hình học (mask chiếm tỉ lệ khung hình lớn hơn), không hẳn vì model "học tốt
+            # hơn" — xem cảnh báo tương tự trong src/shortcut_iou.py.
+            compare_mask = crop_to_lung_bbox(lung_mask, lung_mask, padding=CROP_PADDING)
+            if compare_mask.shape != cam_bin.shape:
+                compare_mask = cv2.resize(
+                    compare_mask, (cam_bin.shape[1], cam_bin.shape[0]), interpolation=cv2.INTER_NEAREST
+                )
+        else:
+            compare_mask = lung_mask
 
-        lung_area = int(lung_mask.sum())
+        iou_score = iou(cam_bin, compare_mask)
+        cont = containment(cam_bin, compare_mask)
+
+        compare_area = int(compare_mask.sum())
         affected_lung_area = (
-            float(np.logical_and(cam_bin.astype(bool), lung_bool).sum() / lung_area * 100)
-            if lung_area > 0
+            float(np.logical_and(cam_bin.astype(bool), compare_mask.astype(bool)).sum() / compare_area * 100)
+            if compare_area > 0
             else 0.0
         )
 
@@ -157,7 +224,8 @@ class MedicalSegmentationModel:
 
         elapsed_ms = round((time.time() - t0) * 1000, 1)
 
-        metrics = dict(AGGREGATE_METRICS)
+        aggregate = AGGREGATE_METRICS_CROPPED if self.crop_mode else AGGREGATE_METRICS_BASELINE
+        metrics = dict(aggregate)
         metrics["iou_score"] = round(float(iou_score), 3)
         metrics["affected_lung_area"] = round(affected_lung_area, 1)
         metrics["inference_time_ms"] = elapsed_ms

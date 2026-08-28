@@ -28,6 +28,9 @@ HEATMAPS_DIR = UPLOADS_DIR / "heatmaps"
 # trùng file .pth nặng (~140MB) vào backend/weights/ riêng.
 WEIGHTS_DIR = REPO_ROOT / "weights"
 CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier.pth"
+CROPPED_CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier_cropped.pth"  # bản "đã tối ưu"
+# — xem notebooks/train_classifier_cropped.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md.
+# ai_engine.py tự ưu tiên dùng file này nếu tồn tại, fallback CLASSIFIER_WEIGHTS nếu không.
 UNET_WEIGHTS = WEIGHTS_DIR / "best_unet.pth"
 DEFAULT_MODEL_WEIGHTS = CLASSIFIER_WEIGHTS  # giữ tên cũ để tương thích ngược nếu có chỗ khác import
 

@@ -112,28 +112,77 @@ Toàn bộ số liệu Phần 1-2 (F1, confusion matrix, Dice) đo trên **val s
 
 ---
 
-## 5. Đề xuất hướng xử lý
+## 5. Sau tối ưu — Crop-to-lung (đã thực hiện đề xuất 5.1 cũ)
 
-### Ưu tiên cao — Xử lý shortcut learning (4.1)
+Đã train lại classifier với input crop theo bounding box mask phổi (`notebooks/train_classifier_cropped.ipynb`, `src/dataset.py::crop_to_lung_bbox`, đệm biên 10%) — **giữ nguyên mọi hyperparameter khác** so với bản gốc (đúng ablation study, chỉ đổi 1 biến duy nhất). Chi tiết thiết kế/mã nguồn: `docs/THAY_DOI_TOI_UU_CROP_MASK.md`.
 
-1. **Crop/che nền bằng mask U-Net trước khi đưa vào classifier, train lại** — đúng thiết kế gốc trong `description.md` ("U-Net crop lung region, EfficientNet-B3 classify cropped image") nhưng hiện chưa triển khai (classifier hiện train trên ảnh **thô, chưa crop**). Đây là cách xử lý triệt để nhất: loại bỏ vật lý vùng chứa watermark khỏi input, model không còn "nhìn thấy" nó để học shortcut. Chi phí: ~1 lượt train lại trên Colab (~20-30 phút) + so sánh IoU/containment + Accuracy trước/sau.
-2. **Điều tra trực tiếp các ảnh COVID containment thấp nhất** (đã có sẵn danh sách đầy đủ trong `figures/shortcut_records_gt_t0.5.csv`, lọc theo `class=COVID` sắp xếp `containment` tăng dần) — xác nhận cụ thể watermark/artifact nằm ở đâu, có cố định vị trí không (nếu cố định, có thể xử lý đơn giản hơn bằng crop viền cứng thay vì cần U-Net).
-3. **Augmentation nhắm riêng vùng ngoài phổi** (nếu không muốn crop hẳn) — ví dụ CutOut ngẫu nhiên chỉ áp dụng ngoài mask phổi lúc train, giảm tín hiệu từ watermark mà không xoá vùng tổn thương thật (khác với CutOut toàn ảnh đã được khuyến cáo tránh trong `docs/LY_THUYET.md` Phần II.9 bảng augmentation).
+### 5.1. Classifier — accuracy/F1 tăng trên CẢ 3 lớp, không chỉ giải quyết shortcut
 
-### Ưu tiên trung bình
+| | Baseline (thô) | **Crop (mới)** | Chênh lệch |
+|---|---|---|---|
+| Accuracy (val) | 0.9067 | **0.9304** | **+2.37 điểm** |
+| Macro F1 (val) | 0.9057 | **0.9302** | **+2.45 điểm** |
+| Normal F1 | 0.8947 | **0.9151** | +2.04 |
+| Lung_Opacity F1 (yếu nhất) | 0.8769 | **0.9138** | **+3.69** |
+| COVID F1 | 0.9455 | **0.9616** | +1.61 |
 
-4. **Cải thiện Lung_Opacity** (4.2) — tăng `class_weight` cho lớp này trong `CrossEntropyLoss`, hoặc kiểm tra lại nhãn gốc trong dataset (khả năng một số ảnh Lung_Opacity nhẹ thực sự khó phân biệt bằng mắt với Normal, không chỉ do model).
-5. **Ablation Pha 3** (4.3) — chạy lại pipeline bỏ hẳn pha 3 (chỉ 2 pha, 18 epoch), so sánh Macro F1 val với bản đầy đủ 3 pha — nếu tương đương hoặc tốt hơn, loại pha 3 vừa giảm overfit vừa giảm thời gian train.
+Lung_Opacity — lớp yếu nhất ở mục 4.2 — cải thiện nhiều nhất. Phù hợp giả thuyết: bỏ nền/watermark + phổi chiếm khung hình lớn hơn (độ phân giải hiệu quả cao hơn) giúp model học tốt hơn, không chỉ "công bằng hơn" về mặt shortcut.
 
-### Bắt buộc trước khi hoàn thiện báo cáo/luận văn
+### 5.2. Shortcut learning — cải thiện thật nhưng CHƯA giải quyết hết ở lớp COVID
 
-6. **Chạy `notebooks/evaluate_local.ipynb` lấy số liệu TEST SET chính thức** (4.4) — thay thế/bổ sung song song với số liệu val ở Phần 1-2 của báo cáo này, chỉ chạy **một lần** sau khi đã chốt xong mọi quyết định ở mục 4-5.
-7. **Threshold sweep cho shortcut IoU** (0.3/0.4/0.6/0.7, đã có sẵn code mẫu trong `docs/TUTORIAL.md` Phần 11.5) — củng cố kết luận ở Phần 3 không phụ thuộc việc chọn ngưỡng 0.5 tình cờ.
+Chỉ số công bằng nhất để so trước/sau là **% ảnh IoU=0 tuyệt đối** (ít bị ảnh hưởng bởi hiệu ứng hình học — sau khi crop, mask chiếm tỉ lệ khung hình khác hẳn nên so trực tiếp mean IoU/containment dễ gây hiểu lầm; xem cảnh báo trong `src/shortcut_iou.py::run_shortcut_analysis` docstring):
+
+| Lớp | % IoU=0 trước | % IoU=0 **sau** | % containment<0.3 trước | % containment<0.3 **sau** |
+|---|---|---|---|---|
+| COVID | 27.3% | **19.6%** (giảm ~28% tương đối, **chưa hết**) | 76.0% | **59.3%** |
+| Lung_Opacity | 8.4% | **2.0%** (giảm >75%, cải thiện mạnh) | 52.2% | **26.9%** |
+| Normal | 0.7% | **1.6%** (tăng nhẹ, xấu đi) | 17.6% | **24.7%** |
+
+Kiểm tra chéo `gt` vs `unet` mask source sau crop vẫn khớp nhau chặt (COVID 19.6% vs 18.9%, Lung_Opacity 2.0% vs 1.8%) — U-Net vẫn đáng tin cậy làm trọng tài với model đã crop.
+
+**Diễn giải trung thực, không phóng đại:**
+- **Lung_Opacity**: shortcut gần như được giải quyết, đi kèm F1 tăng mạnh nhất — kết quả rõ ràng, thuyết phục.
+- **COVID**: cải thiện thật nhưng **chưa triệt để** — gần 1/5 ảnh COVID vẫn hoàn toàn không nhìn vào phổi sau crop. Ví dụ cụ thể: `COVID-1094.png` (case đã biết trước, watermark khả năng nằm **giữa khung hình** chứ không chỉ ở góc/viền) vẫn cho `iou_score=0.0` khi test live qua backend sau khi đổi sang model crop — crop theo bounding box không loại bỏ được loại watermark nằm giữa ảnh.
+- **Normal**: hơi xấu đi nhẹ — không phải dấu hiệu shortcut mới, mà do lớp này vốn không có "vùng tổn thương" cụ thể để tập trung, sau khi thu hẹp khung hình heatmap dễ lệch ngẫu nhiên hơn. Mức tuyệt đối vẫn thấp (1.6%), không đáng lo.
+
+### 5.3. Kết luận
+
+Crop-to-lung là cải thiện **thật và đáng kể** (đặc biệt accuracy tổng thể +2.45 điểm và Lung_Opacity), đã tích hợp làm bản chính thức trong `backend/app/services/ai_engine.py` (tự động ưu tiên dùng nếu `weights/best_classifier_cropped.pth` tồn tại). Tuy nhiên **không phải giải pháp triệt để cho toàn bộ vấn đề shortcut learning ở lớp COVID** — cần ghi rõ đây là hạn chế còn lại trong báo cáo/luận văn, không phóng đại thành "đã giải quyết xong".
 
 ---
 
-## 6. Tệp số liệu gốc (để tái tạo/kiểm chứng)
+## 6. Đề xuất hướng xử lý còn lại
 
-- `figures/shortcut_records_gt_t0.5.csv`, `figures/shortcut_records_unet_t0.5.csv` — 1350 dòng/file, đủ path ảnh + IoU + containment từng ảnh.
-- `weights/best_classifier.pth`, `weights/best_unet.pth` — checkpoint đã dùng cho mọi số liệu trong báo cáo này.
-- `notebooks/evaluate_local.ipynb` — chạy lại để lấy số liệu test set chính thức (mục 5, đề xuất 6).
+### Đã thực hiện
+
+1. ~~Crop/che nền bằng mask U-Net trước khi đưa vào classifier, train lại~~ — **XONG**, xem mục 5. Cải thiện rõ nhưng chưa triệt để với COVID.
+
+### Ưu tiên cao — còn lại cho COVID (xem 5.2)
+
+2. **Điều tra trực tiếp các ảnh COVID vẫn còn IoU=0 sau crop** (danh sách đầy đủ trong `figures/shortcut_records_gt_cropped_t0.5.csv`, lọc `class=COVID` và `iou=0`) — xác nhận watermark có thực sự nằm giữa khung hình (không loại được bằng crop bounding box) hay do nguyên nhân khác (ví dụ U-Net dự đoán sai mask cho chính các ảnh này).
+3. **Che (blackout) chính xác theo hình dạng mask thay vì chỉ crop bounding box** — loại bỏ được watermark nằm giữa 2 lá phổi (trong box nhưng ngoài mask thật), điều mà crop hình chữ nhật không làm được. Đánh đổi: độ phân giải hiệu quả không tăng như crop (đã bàn ở `docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md` cũ, mục đề xuất 1) — có thể thử làm ablation riêng, so với bản crop hiện tại.
+
+### Ưu tiên trung bình
+
+4. **Ablation Pha 3** (4.3, vẫn còn nguyên với bản crop) — chạy lại pipeline bỏ hẳn pha 3, so sánh Macro F1 val với bản đầy đủ 3 pha.
+
+### Bắt buộc trước khi hoàn thiện báo cáo/luận văn
+
+5. **Chạy `notebooks/evaluate_local.ipynb` lấy số liệu TEST SET chính thức** (4.4) cho CẢ 2 bản (baseline + crop) — toàn bộ số liệu Phần 1, 5 hiện tại đều đo trên val set.
+6. **Threshold sweep cho shortcut IoU** (0.3/0.4/0.6/0.7) cho cả 2 bản — củng cố kết luận không phụ thuộc ngưỡng 0.5.
+
+---
+
+## 7. Tệp số liệu gốc (để tái tạo/kiểm chứng)
+
+**Bản baseline (trước tối ưu):**
+- `figures/shortcut_records_gt_t0.5.csv`, `figures/shortcut_records_unet_t0.5.csv` — 1350 dòng/file.
+- `weights/best_classifier.pth`.
+
+**Bản crop (sau tối ưu):**
+- `figures/shortcut_records_gt_cropped_t0.5.csv`, `figures/shortcut_records_unet_cropped_t0.5.csv` — 1350 dòng/file.
+- `weights/best_classifier_cropped.pth`.
+
+**Dùng chung cả 2 bản:**
+- `weights/best_unet.pth` — không train lại, không đổi giữa 2 bản.
+- `notebooks/evaluate_local.ipynb` — chạy lại để lấy số liệu test set chính thức (mục 6, đề xuất 5).
