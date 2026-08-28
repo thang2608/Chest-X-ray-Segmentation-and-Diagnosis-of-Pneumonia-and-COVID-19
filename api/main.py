@@ -39,6 +39,6 @@ def predict(file: UploadFile = File(...)):
             detail="Không đọc được ảnh — file có thể bị hỏng hoặc sai định dạng",
         )
 
-    result = predict_image(pil_image)
+    result = predict_image(pil_image, filename=file.filename)
     log_prediction(result["predicted_class"], result["confidence"])
     return result

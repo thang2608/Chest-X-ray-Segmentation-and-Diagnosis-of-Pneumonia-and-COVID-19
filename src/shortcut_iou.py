@@ -48,6 +48,18 @@ def iou(a: np.ndarray, b: np.ndarray) -> float:
     return float(inter / union)
 
 
+def dice(a: np.ndarray, b: np.ndarray) -> float:
+    """Dice = 2|A∩B| / (|A|+|B|). Trả 1.0 nếu cả A và B đều rỗng (trùng khớp hoàn hảo
+    theo quy ước), tránh chia 0/0."""
+    a = a.astype(bool)
+    b = b.astype(bool)
+    denom = a.sum() + b.sum()
+    if denom == 0:
+        return 1.0
+    inter = np.logical_and(a, b).sum()
+    return float(2 * inter / denom)
+
+
 def containment(a: np.ndarray, b: np.ndarray) -> float:
     """Tỉ lệ vùng A nằm trong B: |A∩B| / |A|.
 

@@ -16,6 +16,7 @@ chỉ nằm trong báo cáo. Xem docs/LY_THUYET.md Phần VIII.
 import base64
 from io import BytesIO
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -25,12 +26,14 @@ from PIL import Image
 from src.dataset import IDX_TO_CLASS, IMAGE_SIZE, NUM_CLASSES, get_val_transforms
 from src.gradcam import generate_gradcam, overlay_heatmap
 from src.model import build_classifier, load_classifier
-from src.shortcut_iou import binarize, containment, iou, predict_lung_mask
+from src.shortcut_iou import binarize, containment, dice, iou, predict_lung_mask
 from src.unet import build_unet
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WEIGHTS_PATH = Path("weights/best_classifier.pth")
 UNET_WEIGHTS_PATH = Path("weights/best_unet.pth")
+DATA_PROCESSED_DIR = Path("data/processed")
+DATASET_CLASSES = ("COVID", "Lung_Opacity", "Normal")
 GRADCAM_THRESH = 0.5
 LOW_TRUST_CONTAINMENT = 0.3  # dưới ngưỡng này: cảnh báo model có thể đang nhìn ngoài phổi
 
@@ -105,6 +108,23 @@ def load_models() -> None:
         _unet_is_trained = False
 
 
+def _find_ground_truth_mask(filename: Optional[str]) -> Optional[np.ndarray]:
+    """Tìm mask thật trong data/processed/<class>/masks/<filename> — chỉ có kết quả
+    khi ảnh upload TRÙNG TÊN với 1 ảnh trong dataset gốc (đúng tình huống demo: upload
+    lại ảnh mẫu từ data/split/test/images/ để so sánh U-Net với ground truth). Với ảnh
+    thật sự mới (không có trong dataset), luôn trả None — đây là hành vi bình thường,
+    không phải lỗi.
+    """
+    if not filename:
+        return None
+    for cls in DATASET_CLASSES:
+        mask_path = DATA_PROCESSED_DIR / cls / "masks" / filename
+        if mask_path.exists():
+            mask = np.array(Image.open(mask_path).convert("L"))
+            return (mask > 0).astype(np.uint8)
+    return None
+
+
 def _encode_png_base64(image_rgb: np.ndarray) -> str:
     pil_img = Image.fromarray(image_rgb)
     buf = BytesIO()
@@ -112,8 +132,14 @@ def _encode_png_base64(image_rgb: np.ndarray) -> str:
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
-def predict_image(pil_image: Image.Image) -> dict:
-    """Hàm dùng chung — api/main.py gọi hàm này cho mỗi request POST /predict."""
+def predict_image(pil_image: Image.Image, filename: Optional[str] = None) -> dict:
+    """Hàm dùng chung — api/main.py gọi hàm này cho mỗi request POST /predict.
+
+    filename: tên file gốc lúc upload (từ UploadFile.filename) — dùng để tìm mask
+        ground-truth nếu ảnh trùng tên với 1 ảnh trong dataset gốc (xem
+        _find_ground_truth_mask). Không bắt buộc — None vẫn chạy bình thường, chỉ là
+        sẽ không có số liệu so sánh U-Net vs ground truth.
+    """
     if _classifier is None:
         raise RuntimeError("Model chưa được load — gọi load_models() lúc startup")
 
@@ -139,6 +165,16 @@ def predict_image(pil_image: Image.Image) -> dict:
     lung_mask = predict_lung_mask(_unet, img_tensor)
     overlap_iou = iou(cam_bin, lung_mask)
     overlap_containment = containment(cam_bin, lung_mask)
+    unet_mask_base64 = _encode_png_base64((lung_mask * 255).astype(np.uint8))
+
+    # So sánh U-Net vs ground truth — chỉ có nếu ảnh upload trùng tên ảnh trong dataset.
+    gt_mask = _find_ground_truth_mask(filename)
+    gt_mask_found = gt_mask is not None
+    unet_vs_gt_dice: Optional[float] = None
+    unet_vs_gt_iou: Optional[float] = None
+    if gt_mask_found:
+        unet_vs_gt_dice = dice(lung_mask, gt_mask)
+        unet_vs_gt_iou = iou(lung_mask, gt_mask)
 
     disclaimer = BASE_DISCLAIMER
     if not _model_is_trained:
@@ -164,4 +200,8 @@ def predict_image(pil_image: Image.Image) -> dict:
         "disclaimer": disclaimer,
         "lung_overlap_iou": overlap_iou,
         "lung_overlap_containment": overlap_containment,
+        "unet_mask_base64": unet_mask_base64,
+        "gt_mask_found": gt_mask_found,
+        "unet_vs_gt_dice": unet_vs_gt_dice,
+        "unet_vs_gt_iou": unet_vs_gt_iou,
     }
