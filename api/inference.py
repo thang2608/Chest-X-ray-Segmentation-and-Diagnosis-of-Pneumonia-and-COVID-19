@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from src.dataset import IDX_TO_CLASS, IMAGE_SIZE, NUM_CLASSES, get_val_transforms
+from src.dataset import IDX_TO_CLASS, IMAGE_SIZE, NUM_CLASSES, crop_to_lung_bbox, get_val_transforms
 from src.gradcam import generate_gradcam, overlay_heatmap
 from src.model import build_classifier, load_classifier
 from src.shortcut_iou import binarize, containment, dice, iou, predict_lung_mask
@@ -31,10 +31,13 @@ from src.unet import build_unet
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WEIGHTS_PATH = Path("weights/best_classifier.pth")
+CROPPED_WEIGHTS_PATH = Path("weights/best_classifier_cropped.pth")  # bản "đã tối ưu" — xem
+# notebooks/train_classifier_cropped.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.
 UNET_WEIGHTS_PATH = Path("weights/best_unet.pth")
 DATA_PROCESSED_DIR = Path("data/processed")
 DATASET_CLASSES = ("COVID", "Lung_Opacity", "Normal")
 GRADCAM_THRESH = 0.5
+CROP_PADDING = 0.1  # PHẢI khớp giá trị dùng lúc train notebooks/train_classifier_cropped.ipynb
 LOW_TRUST_CONTAINMENT = 0.3  # dưới ngưỡng này: cảnh báo model có thể đang nhìn ngoài phổi
 
 _classifier = None
@@ -42,6 +45,7 @@ _unet = None
 _transform = get_val_transforms()
 _model_is_trained: bool = False
 _unet_is_trained: bool = False
+_crop_mode: bool = False  # True nếu đang dùng classifier bản train trên ảnh crop theo mask
 
 BASE_DISCLAIMER = (
     "Kết quả chỉ mang tính tham khảo, KHÔNG thay thế chẩn đoán y khoa chính thức. "
@@ -55,15 +59,37 @@ UNTRAINED_WARNING = (
 
 
 def load_models() -> None:
-    """Gọi 1 lần lúc server khởi động (xem api/main.py::lifespan)."""
-    global _classifier, _model_is_trained, _unet, _unet_is_trained
+    """Gọi 1 lần lúc server khởi động (xem api/main.py::lifespan).
 
-    if WEIGHTS_PATH.exists():
+    Ưu tiên tự động dùng bản "đã tối ưu" (CROPPED_WEIGHTS_PATH) nếu file đó tồn tại —
+    nếu chưa có (đúng trạng thái hiện tại, chưa train phiên bản crop), hành vi giữ
+    NGUYÊN VẸN như trước: dùng WEIGHTS_PATH (baseline), _crop_mode=False. Nghĩa là code
+    này AN TOÀN để merge ngay bây giờ — không đổi hành vi demo hiện tại cho tới khi
+    weights/best_classifier_cropped.pth thực sự xuất hiện.
+    """
+    global _classifier, _model_is_trained, _unet, _unet_is_trained, _crop_mode
+
+    if CROPPED_WEIGHTS_PATH.exists():
+        try:
+            _classifier = load_classifier(
+                str(CROPPED_WEIGHTS_PATH), num_classes=NUM_CLASSES, device=DEVICE, verbose=True
+            )
+            _model_is_trained = True
+            _crop_mode = True
+            print(f"[inference] OK: loaded OPTIMIZED (cropped) classifier from {CROPPED_WEIGHTS_PATH} on device={DEVICE}")
+        except Exception as exc:
+            print(
+                f"[inference] WARNING: found {CROPPED_WEIGHTS_PATH} but failed to load it "
+                f"({type(exc).__name__}: {exc}) — falling back to baseline classifier."
+            )
+
+    if _classifier is None and WEIGHTS_PATH.exists():
         try:
             _classifier = load_classifier(
                 str(WEIGHTS_PATH), num_classes=NUM_CLASSES, device=DEVICE, verbose=True
             )
             _model_is_trained = True
+            _crop_mode = False
             print(f"[inference] OK: loaded trained classifier from {WEIGHTS_PATH} on device={DEVICE}")
         except Exception as exc:
             # File tồn tại nhưng không load được (hỏng / sai kiến trúc / mid-write) —
@@ -72,7 +98,7 @@ def load_models() -> None:
                 f"[inference] WARNING: found {WEIGHTS_PATH} but failed to load it "
                 f"({type(exc).__name__}: {exc}) — falling back to UNTRAINED classifier."
             )
-    else:
+    elif _classifier is None:
         print(
             f"[inference] WARNING: {WEIGHTS_PATH} does not exist — falling back to "
             "UNTRAINED classifier (ImageNet backbone + random head). Predictions will "
@@ -83,6 +109,7 @@ def load_models() -> None:
         _classifier = build_classifier(num_classes=NUM_CLASSES, pretrained=True, verbose=True)
         _classifier.to(DEVICE).eval()
         _model_is_trained = False
+        _crop_mode = False
 
     if UNET_WEIGHTS_PATH.exists():
         try:
@@ -146,7 +173,22 @@ def predict_image(pil_image: Image.Image, filename: Optional[str] = None) -> dic
     image_np = np.array(pil_image.convert("RGB"))
     image_resized = cv2.resize(image_np, IMAGE_SIZE)
 
-    img_tensor = _transform(image=image_np)["image"]
+    if _crop_mode:
+        # Bản ĐÃ TỐI ƯU: U-Net chạy TRƯỚC để lấy mask, dùng mask đó crop ảnh trước khi
+        # đưa vào classifier (classifier này được train trên ảnh đã crop — xem
+        # notebooks/train_classifier_cropped.ipynb). Grad-CAM sau đó cũng chạy trên
+        # ảnh ĐÃ CROP, nên overlay hiển thị trên khung ảnh đã crop, không phải ảnh gốc.
+        unet_input = _transform(image=image_np)["image"]
+        lung_mask = predict_lung_mask(_unet, unet_input)
+        classifier_input_np = crop_to_lung_bbox(image_resized, lung_mask, padding=CROP_PADDING)
+        img_tensor = _transform(image=classifier_input_np)["image"]
+        overlay_base = cv2.resize(classifier_input_np, IMAGE_SIZE)
+    else:
+        # Bản BASELINE (chưa tối ưu) — GIỮ NGUYÊN y hệt logic gốc, không đổi hành vi
+        # hiện tại (an toàn khi chưa có weights/best_classifier_cropped.pth).
+        img_tensor = _transform(image=image_np)["image"]
+        overlay_base = image_resized
+        lung_mask = None  # tính sau khối no_grad, dùng lại logic chung với nhánh trên
 
     with torch.no_grad():
         logits = _classifier(img_tensor.unsqueeze(0).to(DEVICE))
@@ -157,14 +199,33 @@ def predict_image(pil_image: Image.Image, filename: Optional[str] = None) -> dic
 
     # NGOÀI khối no_grad ở trên — Grad-CAM cần backward pass, không được bọc no_grad().
     heatmap = generate_gradcam(_classifier, img_tensor, target_class=pred_idx)
-    overlay = overlay_heatmap(image_resized, heatmap)
+    overlay = overlay_heatmap(overlay_base, heatmap)
+
+    if lung_mask is None:
+        # Nhánh baseline: giữ đúng vị trí tính như code gốc (sau Grad-CAM, dùng chung
+        # img_tensor với classifier) — không đổi giá trị/hành vi so với trước.
+        lung_mask = predict_lung_mask(_unet, img_tensor)
 
     # Chỉ số tin cậy giải thích — so khớp heatmap với mask phổi U-Net dự đoán
     # (cùng công thức src/shortcut_iou.py dùng để kiểm định shortcut learning).
     cam_bin = binarize(heatmap, GRADCAM_THRESH)
-    lung_mask = predict_lung_mask(_unet, img_tensor)
-    overlap_iou = iou(cam_bin, lung_mask)
-    overlap_containment = containment(cam_bin, lung_mask)
+    if _crop_mode:
+        # So khớp trong ĐÚNG hệ toạ độ đã crop — cắt mask theo cùng box rồi resize
+        # khớp kích thước heatmap (luôn 224×224 sau transform, bất kể box to nhỏ).
+        # LƯU Ý: containment sau crop tự nhiên cao hơn vì hiệu ứng hình học (mask
+        # chiếm tỉ lệ khung hình lớn hơn), không hẳn vì model "học tốt hơn" — xem
+        # cảnh báo tương tự trong src/shortcut_iou.py::run_shortcut_analysis.
+        compare_mask = crop_to_lung_bbox(lung_mask, lung_mask, padding=CROP_PADDING)
+        if compare_mask.shape != cam_bin.shape:
+            compare_mask = cv2.resize(
+                compare_mask, (cam_bin.shape[1], cam_bin.shape[0]), interpolation=cv2.INTER_NEAREST
+            )
+    else:
+        compare_mask = lung_mask
+    overlap_iou = iou(cam_bin, compare_mask)
+    overlap_containment = containment(cam_bin, compare_mask)
+    # Luôn hiển thị mask trên ẢNH GỐC (chưa crop) — dễ hiểu cho người dùng hơn là
+    # mask đã crop (nhìn gần như trắng xoá toàn khung).
     unet_mask_base64 = _encode_png_base64((lung_mask * 255).astype(np.uint8))
 
     # So sánh U-Net vs ground truth — chỉ có nếu ảnh upload trùng tên ảnh trong dataset.
