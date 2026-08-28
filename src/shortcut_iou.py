@@ -1,3 +1,4 @@
+import csv
 import os
 import random
 from pathlib import Path
@@ -47,6 +48,23 @@ def iou(a: np.ndarray, b: np.ndarray) -> float:
     return float(inter / union)
 
 
+def containment(a: np.ndarray, b: np.ndarray) -> float:
+    """Tỉ lệ vùng A nằm trong B: |A∩B| / |A|.
+
+    Dùng để phân biệt 2 nguyên nhân IoU thấp: (a) heatmap NHỎ nhưng nằm TRỌN trong
+    phổi — containment cao, vô hại (model tập trung đúng 1 vùng tổn thương cụ thể);
+    (b) heatmap nằm phần lớn NGOÀI phổi — containment thấp, dấu hiệu shortcut thật
+    (xem docs/LY_THUYET.md Phần VIII.5). Trả 0.0 nếu A rỗng (heatmap không có pixel
+    nào vượt ngưỡng — hiếm nhưng có thể xảy ra).
+    """
+    a = a.astype(bool)
+    b = b.astype(bool)
+    if a.sum() == 0:
+        return 0.0
+    inter = np.logical_and(a, b).sum()
+    return float(inter / a.sum())
+
+
 def load_gt_mask(image_path: Path, mask_dir: Path) -> np.ndarray:
     mask = np.array(Image.open(mask_dir / image_path.name).convert("L"))
     return (mask > 0).astype(np.uint8)
@@ -68,7 +86,17 @@ def run_shortcut_analysis(
     mask_source: Literal["gt", "unet"] = "gt",
     gradcam_thresh: float = 0.5,
     device: Optional[str] = None,
-) -> dict[str, list[float]]:
+) -> tuple[dict[str, list[float]], list[dict]]:
+    """Trả về (ious_per_class, records); đồng thời lưu toàn bộ records ra CSV trong
+    figures/ (mỗi lần gọi, không cần chạy lại Grad-CAM cho các phân tích sau này).
+
+    ious_per_class: {tên_lớp: [iou_ảnh_1, iou_ảnh_2, ...]} — dùng để in bảng thống kê.
+    records: [{"path": Path, "class": str, "iou": float, "containment": float}, ...]
+        — 1 dòng/ảnh. "containment" = |heatmap∩phổi|/|heatmap| — tỉ lệ vùng heatmap
+        thực sự nằm trong phổi, giúp phân biệt "heatmap nhỏ nhưng đúng trong phổi"
+        (containment cao, IoU vẫn có thể thấp — vô hại) với "heatmap ở ngoài phổi"
+        (containment thấp — dấu hiệu shortcut thật, xem docs/LY_THUYET.md Phần VIII.5).
+    """
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     clf = load_classifier(classifier_path, num_classes=len(CLASS_TO_IDX), device=device, verbose=False)
@@ -81,6 +109,7 @@ def run_shortcut_analysis(
     mask_dir = Path(test_split_dir) / "masks"
 
     ious_per_class: dict[str, list[float]] = {c: [] for c in CLASS_TO_IDX}
+    records: list[dict] = []
 
     for i in tqdm(range(len(ds)), desc=f"shortcut analysis (mask={mask_source}, t={gradcam_thresh})"):
         img, label = ds[i]
@@ -99,18 +128,33 @@ def run_shortcut_analysis(
             lung_mask = predict_lung_mask(unet, img)
 
         score = iou(cam_bin, lung_mask)
-        ious_per_class[IDX_TO_CLASS[label]].append(score)
+        cont = containment(cam_bin, lung_mask)
+        cls_name = IDX_TO_CLASS[label]
+        ious_per_class[cls_name].append(score)
+        records.append({"path": path, "class": cls_name, "iou": score, "containment": cont})
 
     print(f"\n===== Mask source: {mask_source} | thresh={gradcam_thresh} =====")
-    for cls, scores in ious_per_class.items():
-        arr = np.array(scores)
+    for cls in ious_per_class:
+        arr = np.array(ious_per_class[cls])
+        conts = np.array([r["containment"] for r in records if r["class"] == cls])
         print(
             f"{cls:15s} n={len(arr):4d} mean IoU={arr.mean():.3f} "
-            f"median={np.median(arr):.3f} std={arr.std():.3f}"
+            f"median IoU={np.median(arr):.3f} std IoU={arr.std():.3f}  |  "
+            f"mean containment={conts.mean():.3f}"
         )
 
     figures_dir = Path("figures")
     figures_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = figures_dir / f"shortcut_records_{mask_source}_t{gradcam_thresh}.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["path", "class", "iou", "containment"])
+        writer.writeheader()
+        for r in records:
+            writer.writerow(
+                {"path": str(r["path"]), "class": r["class"], "iou": r["iou"], "containment": r["containment"]}
+            )
+    print(f"Đã lưu {len(records)} dòng chi tiết vào {csv_path}")
 
     fig, ax = plt.subplots(figsize=(8, 4))
     for cls, scores in ious_per_class.items():
@@ -123,7 +167,7 @@ def run_shortcut_analysis(
     fig.savefig(figures_dir / f"shortcut_iou_{mask_source}_t{gradcam_thresh}.png", dpi=120)
     plt.close(fig)
 
-    return ious_per_class
+    return ious_per_class, records
 
 
 if __name__ == "__main__":
