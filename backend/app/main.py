@@ -27,9 +27,10 @@ from app.services.ai_engine import MedicalSegmentationModel
 async def lifespan(app: FastAPI):
     # Khởi tạo mô hình AI (classifier + U-Net thật) và nạp vào app state — 1 lần duy
     # nhất lúc khởi động, dùng lại cho mọi request (xem src/model.py, src/unet.py).
-    # MedicalSegmentationModel tự ưu tiên theo thứ tự BLACKOUT_CLASSIFIER_WEIGHTS >
-    # CROPPED_CLASSIFIER_WEIGHTS > CLASSIFIER_WEIGHTS (baseline) — dùng file "tối ưu
-    # nhất" đang tồn tại, xem ai_engine.py.
+    # MedicalSegmentationModel tự ưu tiên theo thứ tự CROPPED_CLASSIFIER_WEIGHTS >
+    # BLACKOUT_CLASSIFIER_WEIGHTS > CLASSIFIER_WEIGHTS (baseline) — CROPPED cân bằng
+    # tốt nhất accuracy/shortcut (xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.5-5.6),
+    # BLACKOUT chỉ dùng khi CROPPED thiếu/lỗi, xem ai_engine.py.
     app.state.model = MedicalSegmentationModel(
         str(CLASSIFIER_WEIGHTS),
         str(UNET_WEIGHTS),

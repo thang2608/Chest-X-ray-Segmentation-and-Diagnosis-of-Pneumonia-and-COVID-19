@@ -214,6 +214,18 @@ Kiểm tra chéo `gt` vs `unet` mask source vẫn khớp chặt (COVID 4.2% vs 3
 - **Crop-to-lung**: cân bằng tốt nhất giữa accuracy và giảm shortcut — **khuyến nghị làm bản mặc định khi phục vụ (production)**.
 - **Blackout**: minh chứng khoa học mạnh nhất cho vấn đề shortcut (gần như giải quyết dứt điểm COVID), phù hợp dùng trong báo cáo/luận văn như 1 ablation study, nhưng **không nên đặt làm mặc định phục vụ người dùng** trước khi có hướng cải thiện lại accuracy (xem mục 6, đề xuất mới).
 
+### 5.6. Số liệu TEST SET chính thức, độc lập (giải mục 6, đề xuất 7 cũ)
+
+Toàn bộ số liệu accuracy/F1 ở mục 5.1 và 5.5 phía trên đo trên **val set** (dùng để chọn checkpoint lúc train — đúng mục đích nhưng không phải số liệu cuối cùng cho báo cáo/luận văn). Đã bổ sung mục 5 mới vào `notebooks/evaluate_local.ipynb`, chạy 1 lần duy nhất trên **test set** (1350 ảnh, tách biệt hoàn toàn với val/train) cho cả 3 checkpoint:
+
+| Bản | Accuracy | Macro F1 | Macro Precision | Macro Recall | Normal F1 | Lung_Opacity F1 | COVID F1 |
+|---|---|---|---|---|---|---|---|
+| Baseline | 0.9252 | 0.9241 | 0.9288 | 0.9252 | 0.9159 | 0.8942 | 0.9623 |
+| Crop-to-lung | **0.9281** | **0.9278** | 0.9302 | 0.9281 | 0.9163 | **0.9097** | 0.9574 |
+| Crop+blackout | 0.8748 | 0.8749 | 0.8757 | 0.8748 | 0.8758 | 0.8823 | 0.8666 |
+
+**Nhất quán với số liệu val set** ở mục 5.1/5.5 — cùng thứ hạng (crop > baseline > blackout về accuracy), cùng chiều hướng, không có đảo ngược kết luận nào. Chênh lệch tuyệt đối giữa test và val (ví dụ baseline: 0.9252 test vs 0.9067 val) nằm trong biên độ dao động tự nhiên giữa 2 tập dữ liệu khác nhau, không phải dấu hiệu bất thường. **Số liệu ở bảng này là số chính thức nên dùng khi viết báo cáo/luận văn** (test set chỉ chạm đúng 1 lần cho mỗi checkpoint, đúng nguyên tắc `docs/TUTORIAL.md` Phần 17.1) — số liệu val set ở mục 5.1/5.5 chỉ nên dùng để mô tả quá trình chọn checkpoint lúc train.
+
 ---
 
 ## 6. Đề xuất hướng xử lý còn lại
@@ -222,20 +234,17 @@ Kiểm tra chéo `gt` vs `unet` mask source vẫn khớp chặt (COVID 4.2% vs 3
 
 1. ~~Crop/che nền bằng mask U-Net trước khi đưa vào classifier, train lại~~ — **XONG**, xem mục 5. Cải thiện rõ nhưng chưa triệt để với COVID.
 2. ~~Điều tra trực tiếp các ảnh COVID vẫn còn IoU=0 sau crop~~ — **XONG**, xem mục 5.4. Xác nhận nguyên nhân: crop bounding box giữ nguyên mọi pixel trong hình chữ nhật (kể cả ngoài phổi thật), không phải lỗi U-Net hay watermark nằm ở vị trí đặc biệt.
-3. ~~Che (blackout) chính xác theo hình dạng mask thay vì chỉ crop bounding box~~ — **XONG**, xem mục 5.5. Giảm shortcut rất mạnh (COVID IoU=0: 19.6%→4.2%) nhưng đổi lấy Macro F1 giảm xuống dưới cả baseline (0.8659) — đánh đổi thật, cần quyết định có đáng dùng hay không (xem đề xuất 4 dưới).
-
-### Ưu tiên cao — quyết định triển khai (xem 5.5)
-
-4. **Quyết định bản nào dùng làm mặc định phục vụ** — hiện `api/inference.py`/`ai_engine.py` tự ưu tiên blackout > cropped > baseline (dùng "bản mới nhất có" theo giả định ngầm "mới hơn = tốt hơn"), nhưng mục 5.5 cho thấy giả định đó SAI ở cặp crop/blackout — cần chọn tường minh: giữ crop làm mặc định (khuyến nghị) và blackout chỉ chạy khi cần trình bày ablation, hay chấp nhận đánh đổi accuracy để lấy blackout. **Cần bạn xác nhận trước khi coi đây là xong.**
-5. **Thử cải thiện accuracy của blackout** (nếu muốn dùng nó làm mặc định) — ví dụ: tăng thêm epoch/augmentation bù lại phần "ngữ cảnh xung quanh phổi" đã mất, hoặc thử đệm biên (`padding`) lớn hơn 10% để giữ lại nhiều mô xung quanh phổi hơn trước khi blackout.
+3. ~~Che (blackout) chính xác theo hình dạng mask thay vì chỉ crop bounding box~~ — **XONG**, xem mục 5.5. Giảm shortcut rất mạnh (COVID IoU=0: 19.6%→4.2%) nhưng đổi lấy Macro F1 giảm xuống dưới cả baseline (0.8659) — đánh đổi thật.
+4. ~~Quyết định bản nào dùng làm mặc định phục vụ~~ — **XONG**, đã đổi `api/inference.py`/`ai_engine.py` sang ưu tiên **cropped > blackout > baseline** (quyết định tường minh của người dùng, xác nhận qua so sánh mục 5.5) — kiểm chứng lại bằng server thật, `crop_mode=True blackout_mode=False` dù cả 2 file weights cùng tồn tại.
+5. ~~Chạy `notebooks/evaluate_local.ipynb` lấy số liệu TEST SET chính thức~~ — **XONG**, xem mục 5.6. Kết quả nhất quán với val set, không đảo ngược kết luận nào.
 
 ### Ưu tiên trung bình
 
-6. **Ablation Pha 3** (4.3, vẫn còn nguyên với cả 3 bản) — chạy lại pipeline bỏ hẳn pha 3, so sánh Macro F1 val với bản đầy đủ 3 pha.
+6. **Thử cải thiện accuracy của blackout** (nếu sau này muốn cân nhắc lại làm mặc định) — ví dụ: tăng thêm epoch/augmentation bù lại phần "ngữ cảnh xung quanh phổi" đã mất, hoặc thử đệm biên (`padding`) lớn hơn 10% để giữ lại nhiều mô xung quanh phổi hơn trước khi blackout.
+7. **Ablation Pha 3** (4.3, vẫn còn nguyên với cả 3 bản) — chạy lại pipeline bỏ hẳn pha 3, so sánh Macro F1 val với bản đầy đủ 3 pha.
 
-### Bắt buộc trước khi hoàn thiện báo cáo/luận văn
+### Còn lại, không bắt buộc
 
-7. **Chạy `notebooks/evaluate_local.ipynb` lấy số liệu TEST SET chính thức** (4.4) cho CẢ 3 bản — toàn bộ số liệu Phần 1, 5 hiện tại đều đo trên val set.
 8. **Threshold sweep cho shortcut IoU** (0.3/0.4/0.6/0.7) cho cả 3 bản — củng cố kết luận không phụ thuộc ngưỡng 0.5.
 
 ---
@@ -256,7 +265,8 @@ Kiểm tra chéo `gt` vs `unet` mask source vẫn khớp chặt (COVID 4.2% vs 3
 
 **Dùng chung cả 3 bản:**
 - `weights/best_unet.pth` — không train lại, không đổi giữa cả 3 bản.
-- `notebooks/evaluate_local.ipynb` — chạy lại để lấy số liệu test set chính thức (mục 6, đề xuất 7).
+- `notebooks/evaluate_local.ipynb` — mục 5 (mới) chạy tự động cả 3 bản trên test set, xem mục 5.6.
+- `figures/test_set_official_comparison.csv` — kết quả TEST SET chính thức cả 3 bản (mục 5.6), sinh bởi `notebooks/evaluate_local.ipynb` mục 5.
 
 **Biểu đồ so sánh (mục 5.2, 5.4, 5.5 — sinh bởi `src/plot_shortcut_comparison.py`, đọc lại CSV trên, không cần chạy lại model):**
 - `figures/compare_pct_iou_zero.png` — % ảnh IoU=0 theo lớp, cả 3 bản, cả 2 nguồn mask.
