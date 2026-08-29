@@ -27,6 +27,8 @@ HEATMAPS_DIR = UPLOADS_DIR / "heatmaps"
 # và best_unet.pth từ notebooks/train_classifier.ipynb, train_unet.ipynb) — KHÔNG copy
 # trùng file .pth nặng (~140MB) vào backend/weights/ riêng.
 WEIGHTS_DIR = REPO_ROOT / "weights"
+
+# --- Các model phân loại & segmentation của nhánh demo ---
 CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier.pth"
 CROPPED_CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier_cropped.pth"  # bản "đã tối ưu"
 # — xem notebooks/train_classifier_cropped.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md.
@@ -37,6 +39,13 @@ BLACKOUT_CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier_blackout.pth"  # xo
 # ai_engine.py ưu tiên CROPPED_CLASSIFIER_WEIGHTS trước (cân bằng tốt nhất); file này
 # chỉ dùng khi CROPPED thiếu/lỗi, không tự động "leo thang" lên vì có sẵn.
 UNET_WEIGHTS = WEIGHTS_DIR / "best_unet.pth"
+
+# --- Model nhận diện YOLO của nhánh main ---
+YOLO_MEDICAL_SEG_WEIGHTS = WEIGHTS_DIR / "yolov10-medical-seg.pt"
+
+# --- Khởi tạo mặc định ---
+# Giữ thiết lập của nhánh demo làm mặc định để các file như ai_engine.py hoạt động đúng.
+# Nếu phần code nào từ nhánh main cần gọi file YOLO, bạn chỉ cần import biến YOLO_MEDICAL_SEG_WEIGHTS.
 DEFAULT_MODEL_WEIGHTS = CLASSIFIER_WEIGHTS  # giữ tên cũ để tương thích ngược nếu có chỗ khác import
 
 # Tự động khởi tạo các thư mục lưu trữ nếu chưa có
