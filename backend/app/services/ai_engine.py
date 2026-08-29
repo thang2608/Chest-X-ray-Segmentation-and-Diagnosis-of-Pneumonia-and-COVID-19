@@ -63,16 +63,16 @@ AGGREGATE_METRICS_CROPPED = {
     "precision": 0.9322,    # Classifier CROP, Macro Precision (val set)
     "recall": 0.9304,       # Classifier CROP, Macro Recall (val set)
 }
-# TODO: cập nhật precision/recall thật sau khi train xong
-# notebooks/train_classifier_blackout.ipynb — hiện đang tạm dùng LẠI số của bản CROP
-# làm placeholder (không phải số liệu blackout thật) để không có giá trị "bịa" hiển
-# thị cho người dùng trước khi model blackout tồn tại — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md
-# Phần 5.4/6. self.blackout_mode chỉ True khi weights/best_classifier_blackout.pth
-# thực sự load được, nên placeholder này chỉ "sống" cho tới lần train xong đầu tiên.
+# Số liệu THẬT, đo trực tiếp trên val set (1350 ảnh) sau khi train xong
+# notebooks/train_classifier_blackout.ipynb — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md
+# Phần 5.5. LƯU Ý: macro F1 (0.8659) THẤP HƠN CẢ baseline (0.9057) — blackout đổi
+# accuracy lấy giảm shortcut mạnh (COVID %IoU=0 giảm 27.3%→4.2%), một đánh đổi thật,
+# không phải lỗi số liệu — xem diễn giải đầy đủ trong báo cáo trước khi coi đây là
+# bản "tốt nhất" để dùng mặc định.
 AGGREGATE_METRICS_BLACKOUT = {
-    "dice_score": 0.9862,
-    "precision": 0.9322,
-    "recall": 0.9304,
+    "dice_score": 0.9862,   # U-Net không đổi
+    "precision": 0.8663,    # Classifier BLACKOUT, Macro Precision (val set)
+    "recall": 0.8659,       # Classifier BLACKOUT, Macro Recall (val set)
 }
 
 
@@ -95,26 +95,15 @@ class MedicalSegmentationModel:
         self.crop_mode = False
         self.blackout_mode = False  # True CHỈ khi bản blackout cụ thể được load (xem crop_mode)
 
-        # --- Classifier: ưu tiên theo thứ tự blackout > cropped > baseline (mỗi bản
-        # "tối ưu hơn" bản trước — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5, 5.4),
-        # giống cơ chế đã dùng trong api/inference.py — an toàn để merge, không đổi
-        # hành vi hiện tại nếu weights tương ứng chưa tồn tại. ---
-        if blackout_classifier_path and Path(blackout_classifier_path).exists():
-            try:
-                self.classifier = load_classifier(
-                    blackout_classifier_path, num_classes=NUM_CLASSES, device=self.device, verbose=True
-                )
-                self.classifier_is_trained = True
-                self.crop_mode = True
-                self.blackout_mode = True
-                print(f"[ai_engine] OK: dung classifier DA TOI UU (blackout) tu {blackout_classifier_path}")
-            except Exception as exc:
-                print(
-                    f"[ai_engine] WARNING: co {blackout_classifier_path} nhung load loi "
-                    f"({type(exc).__name__}: {exc}) - fallback ve classifier cropped/baseline."
-                )
-
-        if not self.classifier_is_trained and cropped_classifier_path and Path(cropped_classifier_path).exists():
+        # --- Classifier: ưu tiên theo thứ tự cropped > blackout > baseline. CROPPED
+        # làm mặc định vì cân bằng tốt nhất accuracy/shortcut (xem
+        # docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.5): blackout giảm shortcut mạnh
+        # hơn NHƯNG Macro F1 val giảm xuống DƯỚI CẢ baseline (0.8659 < 0.9057) — "mới
+        # hơn" không có nghĩa "tốt hơn" ở đây, nên KHÔNG ưu tiên nó dù có sẵn. BLACKOUT
+        # vẫn tự dùng được nếu CROPPED thiếu/lỗi — không rơi thẳng về baseline. Giống
+        # cơ chế trong api/inference.py — an toàn để merge, không đổi hành vi hiện tại
+        # nếu weights tương ứng chưa tồn tại. ---
+        if cropped_classifier_path and Path(cropped_classifier_path).exists():
             try:
                 self.classifier = load_classifier(
                     cropped_classifier_path, num_classes=NUM_CLASSES, device=self.device, verbose=True
@@ -125,6 +114,21 @@ class MedicalSegmentationModel:
             except Exception as exc:
                 print(
                     f"[ai_engine] WARNING: co {cropped_classifier_path} nhung load loi "
+                    f"({type(exc).__name__}: {exc}) - fallback ve classifier blackout/baseline."
+                )
+
+        if not self.classifier_is_trained and blackout_classifier_path and Path(blackout_classifier_path).exists():
+            try:
+                self.classifier = load_classifier(
+                    blackout_classifier_path, num_classes=NUM_CLASSES, device=self.device, verbose=True
+                )
+                self.classifier_is_trained = True
+                self.crop_mode = True
+                self.blackout_mode = True
+                print(f"[ai_engine] OK: dung classifier BLACKOUT (fallback tu cropped) tu {blackout_classifier_path}")
+            except Exception as exc:
+                print(
+                    f"[ai_engine] WARNING: co {blackout_classifier_path} nhung load loi "
                     f"({type(exc).__name__}: {exc}) - fallback ve classifier baseline."
                 )
 

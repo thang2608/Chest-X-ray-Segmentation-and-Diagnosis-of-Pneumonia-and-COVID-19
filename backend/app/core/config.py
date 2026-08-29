@@ -30,10 +30,12 @@ WEIGHTS_DIR = REPO_ROOT / "weights"
 CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier.pth"
 CROPPED_CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier_cropped.pth"  # bản "đã tối ưu"
 # — xem notebooks/train_classifier_cropped.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md.
-BLACKOUT_CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier_blackout.pth"  # bản "tối ưu hơn
-# nữa" — xoá pixel ngoài hình dạng phổi thay vì chỉ crop bounding box, xem
-# notebooks/train_classifier_blackout.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4/6.
-# ai_engine.py tự ưu tiên theo thứ tự blackout > cropped > CLASSIFIER_WEIGHTS (baseline).
+BLACKOUT_CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier_blackout.pth"  # xoá pixel
+# ngoài hình dạng phổi thay vì chỉ crop bounding box — giảm shortcut RẤT mạnh nhưng
+# Macro F1 val giảm xuống DƯỚI CẢ baseline (0.8659 < 0.9057, xem
+# docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.5) — KHÔNG phải bản "tốt hơn" đơn thuần.
+# ai_engine.py ưu tiên CROPPED_CLASSIFIER_WEIGHTS trước (cân bằng tốt nhất); file này
+# chỉ dùng khi CROPPED thiếu/lỗi, không tự động "leo thang" lên vì có sẵn.
 UNET_WEIGHTS = WEIGHTS_DIR / "best_unet.pth"
 DEFAULT_MODEL_WEIGHTS = CLASSIFIER_WEIGHTS  # giữ tên cũ để tương thích ngược nếu có chỗ khác import
 

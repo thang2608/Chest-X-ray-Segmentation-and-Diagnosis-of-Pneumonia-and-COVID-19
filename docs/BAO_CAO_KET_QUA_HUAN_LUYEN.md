@@ -177,6 +177,43 @@ Crop-to-lung là cải thiện **thật và đáng kể** (đặc biệt accurac
 
 **Kết luận:** khớp đúng số liệu tổng thể ở mục 5.2 (COVID vẫn còn 19.6% ảnh IoU=0 sau crop) — đây không phải ca cá biệt mà là hệ quả tất yếu của việc dùng bounding box thay vì mask thật. Xác nhận hướng xử lý tiếp theo đúng là **mask-shaped blackout** (mục 6, đề xuất 3) chứ không phải chỉnh lại tỉ lệ đệm biên.
 
+### 5.5. Blackout — đã train và đánh giá: giảm shortcut RẤT MẠNH, nhưng đổi lấy accuracy thấp hơn cả baseline
+
+Đã train `notebooks/train_classifier_blackout.ipynb` (`weights/best_classifier_blackout.pth`) — **giữ nguyên mọi hyperparameter khác** so với 2 bản trước (đúng ablation, chỉ đổi 1 biến so với bản crop: thêm `blackout=True`, xem `src/dataset.py::crop_to_lung_bbox_blackout`). Đo lại trên đúng val set (1350 ảnh) và test set (1350 ảnh, Grad-CAM) như 2 bản trước.
+
+**Shortcut learning — cải thiện vượt xa cả 2 mục tiêu ban đầu:**
+
+| Lớp | % IoU=0 baseline | % IoU=0 crop | % IoU=0 **blackout** |
+|---|---|---|---|
+| COVID | 27.3% | 19.6% | **4.2%** (giảm 85% so với baseline, 79% so với crop) |
+| Lung_Opacity | 8.4% | 2.0% | **0.4%** |
+| Normal | 0.7% | 1.6% | **0.0%** |
+
+Kiểm tra chéo `gt` vs `unet` mask source vẫn khớp chặt (COVID 4.2% vs 3.6%, Lung_Opacity 0.4% vs 0.2%) — xác nhận không phải nhiễu thống kê.
+
+![So sánh % ảnh IoU=0 qua 3 bản](../figures/compare_pct_iou_zero.png)
+
+![Case study: Grad-CAM tập trung vào phổi tốt hơn rõ rệt sau blackout](../figures/case_study_blackout_fix.png)
+
+**Nhưng accuracy giảm đáng kể — đánh đổi thật, không phải lỗi số liệu** (đo trực tiếp bằng classifier trên val set, không phải tự báo cáo từ notebook):
+
+| | Baseline | Crop | **Blackout** |
+|---|---|---|---|
+| Accuracy (val) | 0.9067 | 0.9304 | **0.8659** |
+| Macro F1 (val) | 0.9057 | 0.9302 | **0.8659** |
+| Normal F1 | 0.8947 | 0.9151 | **0.8678** |
+| Lung_Opacity F1 | 0.8769 | 0.9138 | **0.8673** |
+| COVID F1 | 0.9455 | 0.9616 | **0.8627** |
+
+![Đánh đổi Accuracy vs Shortcut learning](../figures/compare_accuracy_vs_shortcut_tradeoff.png)
+
+**Diễn giải trung thực:** blackout xác nhận đúng giả thuyết ở mục 5.4 (xoá triệt để pixel ngoài phổi giải quyết được phần lớn shortcut còn sót của crop thuần) — đây là kết quả khoa học rõ ràng, đáng tin cậy. Nhưng nó **KHÔNG đơn thuần "tốt hơn" bản crop**: Macro F1 giảm hẳn xuống dưới cả baseline (0.8659 < 0.9057), tức mất đi phần cải thiện tổng thể mà crop mang lại (mục 5.1), thậm chí lỗ hơn cả lúc chưa tối ưu gì. Nguyên nhân nhiều khả năng: xoá nền + đưa vùng phổi về nền đen đồng thời làm mất một số **kết cấu/ngữ cảnh xung quanh phổi hữu ích cho phân loại thật** (mô mềm, xương sườn viền ngoài, đối xứng lồng ngực) mà bản thân nó không phải shortcut — không chỉ xoá watermark mà còn xoá một phần tín hiệu thật.
+
+**Kết luận — 3 bản, 3 vai trò khác nhau, không có bản nào "thắng tuyệt đối":**
+- **Baseline**: KHÔNG dùng — accuracy thấp nhất VÀ shortcut nặng nhất.
+- **Crop-to-lung**: cân bằng tốt nhất giữa accuracy và giảm shortcut — **khuyến nghị làm bản mặc định khi phục vụ (production)**.
+- **Blackout**: minh chứng khoa học mạnh nhất cho vấn đề shortcut (gần như giải quyết dứt điểm COVID), phù hợp dùng trong báo cáo/luận văn như 1 ablation study, nhưng **không nên đặt làm mặc định phục vụ người dùng** trước khi có hướng cải thiện lại accuracy (xem mục 6, đề xuất mới).
+
 ---
 
 ## 6. Đề xuất hướng xử lý còn lại
@@ -185,19 +222,21 @@ Crop-to-lung là cải thiện **thật và đáng kể** (đặc biệt accurac
 
 1. ~~Crop/che nền bằng mask U-Net trước khi đưa vào classifier, train lại~~ — **XONG**, xem mục 5. Cải thiện rõ nhưng chưa triệt để với COVID.
 2. ~~Điều tra trực tiếp các ảnh COVID vẫn còn IoU=0 sau crop~~ — **XONG**, xem mục 5.4. Xác nhận nguyên nhân: crop bounding box giữ nguyên mọi pixel trong hình chữ nhật (kể cả ngoài phổi thật), không phải lỗi U-Net hay watermark nằm ở vị trí đặc biệt.
+3. ~~Che (blackout) chính xác theo hình dạng mask thay vì chỉ crop bounding box~~ — **XONG**, xem mục 5.5. Giảm shortcut rất mạnh (COVID IoU=0: 19.6%→4.2%) nhưng đổi lấy Macro F1 giảm xuống dưới cả baseline (0.8659) — đánh đổi thật, cần quyết định có đáng dùng hay không (xem đề xuất 4 dưới).
 
-### Ưu tiên cao — còn lại cho COVID (xem 5.2, 5.4)
+### Ưu tiên cao — quyết định triển khai (xem 5.5)
 
-3. **Che (blackout) chính xác theo hình dạng mask thay vì chỉ crop bounding box** — loại bỏ được watermark nằm giữa 2 lá phổi hoặc gần rìa (trong box nhưng ngoài mask thật), điều mà crop hình chữ nhật không làm được (xem 5.4). Đánh đổi: độ phân giải hiệu quả không tăng bằng crop thuần (mất thêm diện tích thành nền đen) — làm ablation riêng, so trực tiếp với bản crop hiện tại bằng `src/shortcut_iou.py`.
+4. **Quyết định bản nào dùng làm mặc định phục vụ** — hiện `api/inference.py`/`ai_engine.py` tự ưu tiên blackout > cropped > baseline (dùng "bản mới nhất có" theo giả định ngầm "mới hơn = tốt hơn"), nhưng mục 5.5 cho thấy giả định đó SAI ở cặp crop/blackout — cần chọn tường minh: giữ crop làm mặc định (khuyến nghị) và blackout chỉ chạy khi cần trình bày ablation, hay chấp nhận đánh đổi accuracy để lấy blackout. **Cần bạn xác nhận trước khi coi đây là xong.**
+5. **Thử cải thiện accuracy của blackout** (nếu muốn dùng nó làm mặc định) — ví dụ: tăng thêm epoch/augmentation bù lại phần "ngữ cảnh xung quanh phổi" đã mất, hoặc thử đệm biên (`padding`) lớn hơn 10% để giữ lại nhiều mô xung quanh phổi hơn trước khi blackout.
 
 ### Ưu tiên trung bình
 
-4. **Ablation Pha 3** (4.3, vẫn còn nguyên với bản crop) — chạy lại pipeline bỏ hẳn pha 3, so sánh Macro F1 val với bản đầy đủ 3 pha.
+6. **Ablation Pha 3** (4.3, vẫn còn nguyên với cả 3 bản) — chạy lại pipeline bỏ hẳn pha 3, so sánh Macro F1 val với bản đầy đủ 3 pha.
 
 ### Bắt buộc trước khi hoàn thiện báo cáo/luận văn
 
-5. **Chạy `notebooks/evaluate_local.ipynb` lấy số liệu TEST SET chính thức** (4.4) cho CẢ 2 bản (baseline + crop) — toàn bộ số liệu Phần 1, 5 hiện tại đều đo trên val set.
-6. **Threshold sweep cho shortcut IoU** (0.3/0.4/0.6/0.7) cho cả 2 bản — củng cố kết luận không phụ thuộc ngưỡng 0.5.
+7. **Chạy `notebooks/evaluate_local.ipynb` lấy số liệu TEST SET chính thức** (4.4) cho CẢ 3 bản — toàn bộ số liệu Phần 1, 5 hiện tại đều đo trên val set.
+8. **Threshold sweep cho shortcut IoU** (0.3/0.4/0.6/0.7) cho cả 3 bản — củng cố kết luận không phụ thuộc ngưỡng 0.5.
 
 ---
 
@@ -211,11 +250,18 @@ Crop-to-lung là cải thiện **thật và đáng kể** (đặc biệt accurac
 - `figures/shortcut_records_gt_cropped_t0.5.csv`, `figures/shortcut_records_unet_cropped_t0.5.csv` — 1350 dòng/file.
 - `weights/best_classifier_cropped.pth`.
 
-**Dùng chung cả 2 bản:**
-- `weights/best_unet.pth` — không train lại, không đổi giữa 2 bản.
-- `notebooks/evaluate_local.ipynb` — chạy lại để lấy số liệu test set chính thức (mục 6, đề xuất 5).
+**Bản blackout (crop + xoá nền ngoài mask):**
+- `figures/shortcut_records_gt_cropped_blackout_t0.5.csv`, `figures/shortcut_records_unet_cropped_blackout_t0.5.csv` — 1350 dòng/file.
+- `weights/best_classifier_blackout.pth`.
 
-**Biểu đồ so sánh trước/sau (mục 5.2, 5.4 — sinh bởi `src/plot_shortcut_comparison.py`, đọc lại 4 CSV trên, không cần chạy lại model):**
-- `figures/compare_pct_iou_zero.png` — % ảnh IoU=0 theo lớp, trước/sau, cả 2 nguồn mask.
-- `figures/compare_containment_box.png` — phân phối containment theo lớp, trước/sau.
-- `figures/case_study_bbox_leak.png` — ca cụ thể minh hoạ nguyên nhân (mục 5.4), sinh từ script chẩn đoán một lần (không lưu lại trong repo, chỉ lưu ảnh kết quả).
+**Dùng chung cả 3 bản:**
+- `weights/best_unet.pth` — không train lại, không đổi giữa cả 3 bản.
+- `notebooks/evaluate_local.ipynb` — chạy lại để lấy số liệu test set chính thức (mục 6, đề xuất 7).
+
+**Biểu đồ so sánh (mục 5.2, 5.4, 5.5 — sinh bởi `src/plot_shortcut_comparison.py`, đọc lại CSV trên, không cần chạy lại model):**
+- `figures/compare_pct_iou_zero.png` — % ảnh IoU=0 theo lớp, cả 3 bản, cả 2 nguồn mask.
+- `figures/compare_containment_box.png` — phân phối containment theo lớp, baseline/crop.
+- `figures/compare_accuracy_vs_shortcut_tradeoff.png` — đánh đổi Macro F1 ↔ %COVID IoU=0 qua 3 bản.
+- `figures/case_study_bbox_leak.png` — ca cụ thể minh hoạ nguyên nhân crop chưa triệt để (mục 5.4).
+- `figures/case_study_blackout_fix.png` — cùng ảnh, so Grad-CAM crop vs. blackout (mục 5.5).
+- (2 ca cụ thể trên sinh từ script chẩn đoán chạy một lần thủ công, không lưu lại trong repo — chỉ lưu ảnh kết quả.)

@@ -74,16 +74,32 @@ UNTRAINED_WARNING = (
 def load_models() -> None:
     """Gọi 1 lần lúc server khởi động (xem api/main.py::lifespan).
 
-    Ưu tiên tự động theo thứ tự: BLACKOUT_WEIGHTS_PATH > CROPPED_WEIGHTS_PATH >
-    WEIGHTS_PATH (baseline) — dùng bản "tối ưu nhất" đang có, fallback dần xuống nếu
-    file không tồn tại hoặc load lỗi. Nếu chưa có bản nào ngoài baseline (đúng trạng
-    thái trước khi train blackout), hành vi giữ NGUYÊN VẸN như trước. Code này AN TOÀN
-    để merge ngay bây giờ — không đổi hành vi demo hiện tại cho tới khi
-    weights/best_classifier_blackout.pth thực sự xuất hiện.
+    Ưu tiên tự động theo thứ tự: CROPPED_WEIGHTS_PATH > BLACKOUT_WEIGHTS_PATH >
+    WEIGHTS_PATH (baseline) — CROPPED làm mặc định vì cân bằng tốt nhất giữa accuracy
+    và giảm shortcut (xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.5: blackout giảm
+    shortcut mạnh hơn NHƯNG Macro F1 val giảm xuống dưới cả baseline — 0.8659 < 0.9057
+    — nên KHÔNG đặt làm mặc định dù file "mới" hơn). BLACKOUT vẫn tự dùng được nếu vì
+    lý do gì đó CROPPED thiếu/lỗi — không rơi thẳng về baseline chưa tối ưu gì. Nếu
+    chưa có bản nào ngoài baseline, hành vi giữ NGUYÊN VẸN như trước.
     """
     global _classifier, _model_is_trained, _unet, _unet_is_trained, _crop_mode, _blackout_mode
 
-    if BLACKOUT_WEIGHTS_PATH.exists():
+    if CROPPED_WEIGHTS_PATH.exists():
+        try:
+            _classifier = load_classifier(
+                str(CROPPED_WEIGHTS_PATH), num_classes=NUM_CLASSES, device=DEVICE, verbose=True
+            )
+            _model_is_trained = True
+            _crop_mode = True
+            _blackout_mode = False
+            print(f"[inference] OK: loaded OPTIMIZED (cropped) classifier from {CROPPED_WEIGHTS_PATH} on device={DEVICE}")
+        except Exception as exc:
+            print(
+                f"[inference] WARNING: found {CROPPED_WEIGHTS_PATH} but failed to load it "
+                f"({type(exc).__name__}: {exc}) — falling back to blackout/baseline classifier."
+            )
+
+    if _classifier is None and BLACKOUT_WEIGHTS_PATH.exists():
         try:
             _classifier = load_classifier(
                 str(BLACKOUT_WEIGHTS_PATH), num_classes=NUM_CLASSES, device=DEVICE, verbose=True
@@ -91,24 +107,10 @@ def load_models() -> None:
             _model_is_trained = True
             _crop_mode = True
             _blackout_mode = True
-            print(f"[inference] OK: loaded OPTIMIZED (blackout) classifier from {BLACKOUT_WEIGHTS_PATH} on device={DEVICE}")
+            print(f"[inference] OK: loaded classifier BLACKOUT (fallback tu CROPPED) from {BLACKOUT_WEIGHTS_PATH} on device={DEVICE}")
         except Exception as exc:
             print(
                 f"[inference] WARNING: found {BLACKOUT_WEIGHTS_PATH} but failed to load it "
-                f"({type(exc).__name__}: {exc}) — falling back to cropped/baseline classifier."
-            )
-
-    if _classifier is None and CROPPED_WEIGHTS_PATH.exists():
-        try:
-            _classifier = load_classifier(
-                str(CROPPED_WEIGHTS_PATH), num_classes=NUM_CLASSES, device=DEVICE, verbose=True
-            )
-            _model_is_trained = True
-            _crop_mode = True
-            print(f"[inference] OK: loaded OPTIMIZED (cropped) classifier from {CROPPED_WEIGHTS_PATH} on device={DEVICE}")
-        except Exception as exc:
-            print(
-                f"[inference] WARNING: found {CROPPED_WEIGHTS_PATH} but failed to load it "
                 f"({type(exc).__name__}: {exc}) — falling back to baseline classifier."
             )
 

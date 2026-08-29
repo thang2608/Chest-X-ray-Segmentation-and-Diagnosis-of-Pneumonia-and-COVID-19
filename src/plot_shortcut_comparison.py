@@ -40,27 +40,30 @@ def _containments(records: list[dict], cls: str) -> np.ndarray:
 
 def plot_pct_iou_zero():
     """Biểu đồ cột nhóm: % ảnh có IoU(Grad-CAM, phổi) = 0 tuyệt đối theo từng lớp,
-    so sánh baseline vs. đã crop — CHỈ SỐ ƯU TIÊN khi so trước/sau vì không bị ảnh
-    hưởng bởi hiệu ứng hình học (mask chiếm tỉ lệ khung hình khác nhau, xem docstring
-    trong src/shortcut_iou.py::run_shortcut_analysis)."""
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), sharey=True)
+    so sánh 3 bản baseline / cropped / blackout — CHỈ SỐ ƯU TIÊN khi so trước/sau vì
+    không bị ảnh hưởng bởi hiệu ứng hình học (mask chiếm tỉ lệ khung hình khác nhau,
+    xem docstring trong src/shortcut_iou.py::run_shortcut_analysis)."""
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.5), sharey=True)
 
     for ax, source in zip(axes, ["gt", "unet"]):
         base = _read_records(FIGURES_DIR / f"shortcut_records_{source}_t0.5.csv")
         crop = _read_records(FIGURES_DIR / f"shortcut_records_{source}_cropped_t0.5.csv")
+        black = _read_records(FIGURES_DIR / f"shortcut_records_{source}_cropped_blackout_t0.5.csv")
 
         pct_base = [_pct_iou_zero(base, c) for c in CLASSES]
         pct_crop = [_pct_iou_zero(crop, c) for c in CLASSES]
+        pct_black = [_pct_iou_zero(black, c) for c in CLASSES]
 
         x = np.arange(len(CLASSES))
-        w = 0.35
-        b1 = ax.bar(x - w / 2, pct_base, w, label="Trước crop (baseline)", color="#d9534f")
-        b2 = ax.bar(x + w / 2, pct_crop, w, label="Sau crop-to-lung", color="#5cb85c")
-        for bars in (b1, b2):
+        w = 0.26
+        b1 = ax.bar(x - w, pct_base, w, label="Baseline (thô)", color="#d9534f")
+        b2 = ax.bar(x, pct_crop, w, label="Crop-to-lung", color="#f0ad4e")
+        b3 = ax.bar(x + w, pct_black, w, label="Crop + blackout", color="#5cb85c")
+        for bars in (b1, b2, b3):
             for bar in bars:
                 h = bar.get_height()
                 ax.annotate(f"{h:.1f}%", (bar.get_x() + bar.get_width() / 2, h),
-                            xytext=(0, 3), textcoords="offset points", ha="center", fontsize=9)
+                            xytext=(0, 3), textcoords="offset points", ha="center", fontsize=8.5)
 
         ax.set_xticks(x)
         ax.set_xticklabels(CLASSES)
@@ -68,9 +71,53 @@ def plot_pct_iou_zero():
         ax.set_ylabel("% ảnh có IoU = 0 (Grad-CAM không chạm phổi)")
         ax.legend()
 
-    fig.suptitle("Shortcut learning trước/sau crop-to-lung — % ảnh Grad-CAM hoàn toàn ngoài phổi")
+    fig.suptitle("Shortcut learning qua 3 bản — % ảnh Grad-CAM hoàn toàn ngoài phổi")
     fig.tight_layout()
     out = FIGURES_DIR / "compare_pct_iou_zero.png"
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"Đã lưu {out}")
+
+
+def plot_accuracy_vs_shortcut_tradeoff():
+    """Biểu đồ đánh đổi: Macro F1 (val set) vs. % ảnh COVID IoU=0 (test set, mask gt),
+    3 bản — minh hoạ trade-off blackout giảm shortcut MẠNH nhưng đổi lấy accuracy thấp
+    hơn cả baseline. Số liệu F1 lấy từ docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5 (đo
+    trực tiếp bằng eval script trên weights/best_classifier_{}.pth, không phải suy đoán."""
+    variants = ["Baseline", "Crop-to-lung", "Crop + blackout"]
+    macro_f1 = [0.9057, 0.9302, 0.8659]
+    covid_iou_zero_gt = [27.3, 19.6, 4.2]
+    colors = ["#d9534f", "#f0ad4e", "#5cb85c"]
+
+    fig, ax1 = plt.subplots(figsize=(7.5, 5))
+    ax2 = ax1.twinx()
+
+    x = np.arange(len(variants))
+    bars = ax1.bar(x - 0.18, macro_f1, 0.32, color="#337ab7", label="Macro F1 (val, thang trái)")
+    line = ax2.plot(x + 0.18, covid_iou_zero_gt, "o-", color="#d9534f", linewidth=2, markersize=9,
+                     label="% COVID IoU=0 (test, thang phải)")
+
+    for bx, v in zip(x - 0.18, macro_f1):
+        ax1.annotate(f"{v:.4f}", (bx, v), xytext=(0, 4), textcoords="offset points",
+                     ha="center", fontsize=9, color="#337ab7")
+    for lx, v in zip(x + 0.18, covid_iou_zero_gt):
+        ax2.annotate(f"{v:.1f}%", (lx, v), xytext=(0, 8), textcoords="offset points",
+                     ha="center", fontsize=9, color="#d9534f")
+
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(variants)
+    ax1.set_ylabel("Macro F1 (val set)", color="#337ab7")
+    ax1.set_ylim(0.8, 1.0)
+    ax2.set_ylabel("% ảnh COVID có IoU=0 (test set, càng thấp càng ít shortcut)", color="#d9534f")
+    ax2.set_ylim(0, 30)
+    ax1.set_title("Đánh đổi Accuracy ↔ Shortcut learning qua 3 bản")
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc="lower center", fontsize=8.5)
+
+    fig.tight_layout()
+    out = FIGURES_DIR / "compare_accuracy_vs_shortcut_tradeoff.png"
     fig.savefig(out, dpi=130)
     plt.close(fig)
     print(f"Đã lưu {out}")
@@ -145,7 +192,41 @@ def plot_case_study(diag_images: dict[str, Path]):
     print(f"Đã lưu {out}")
 
 
+def plot_case_study_blackout_fix(diag_images: dict[str, Path]):
+    """So sánh trực tiếp cropped vs. blackout trên CÙNG 1 ảnh (sample_covid.png) —
+    minh hoạ blackout xoá sạch vùng ngoài phổi (kể cả logo/vật thể trong bbox) mà
+    crop thuần không làm được. Xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.5.
+
+    diag_images: {"cropped_input": path, "cropped_gradcam": path,
+                  "blackout_input": path, "blackout_gradcam": path}
+    """
+    from PIL import Image
+
+    fig, axes = plt.subplots(2, 2, figsize=(7, 7))
+    cells = [
+        ("cropped_input", "1. Input — crop-to-lung\n(vẫn còn nền/vật thể ngoài phổi)"),
+        ("cropped_gradcam", "2. Grad-CAM trên ảnh crop\nIoU=0.202  Containment=0.499"),
+        ("blackout_input", "3. Input — crop + blackout\n(xoá sạch mọi pixel ngoài phổi)"),
+        ("blackout_gradcam", "4. Grad-CAM trên ảnh blackout\nIoU=0.238  Containment=0.641"),
+    ]
+    for ax, (key, title) in zip(axes.flat, cells):
+        ax.imshow(Image.open(diag_images[key]))
+        ax.set_title(title, fontsize=9.5)
+        ax.axis("off")
+
+    fig.suptitle(
+        "sample_covid.png — Grad-CAM tập trung vào phổi tốt hơn rõ rệt sau blackout",
+        fontsize=11.5, y=1.0,
+    )
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    out = FIGURES_DIR / "case_study_blackout_fix.png"
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"Đã lưu {out}")
+
+
 if __name__ == "__main__":
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     plot_pct_iou_zero()
     plot_containment_box()
+    plot_accuracy_vs_shortcut_tradeoff()
