@@ -16,9 +16,11 @@ COVID-19_Radiography_Dataset/
 data/processed/
 data/split/
 
-# Trained weights & generated figures (keep folder via .gitkeep)
+# Trained weights & generated figures
 weights/*
 !weights/.gitkeep
+!weights/best_classifier_cropped.pth
+!weights/best_unet.pth
 figures/*
 !figures/.gitkeep
 
