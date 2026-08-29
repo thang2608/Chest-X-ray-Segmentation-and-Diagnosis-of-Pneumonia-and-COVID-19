@@ -1,0 +1,29 @@
+# Git & IDE
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Datasets (rất nặng, không đưa vào Docker build context)
+COVID-19_Radiography_Dataset/
+data/
+data/processed/
+data/split/
+
+# Notebooks & temporary docs (không cần thiết lúc chạy container)
+notebooks/
+scratch/
