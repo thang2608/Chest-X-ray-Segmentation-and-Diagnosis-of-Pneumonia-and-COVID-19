@@ -5,27 +5,35 @@ from pydantic import BaseModel, Field
 class EvaluationMetrics(BaseModel):
     dice_score: float = Field(
         ...,
-        description="Chỉ số Dice Coefficient (F1-score) đánh giá độ trùng khớp vùng phân đoạn tổn thương (0 đến 1.0)",
-        example=0.892,
+        description=(
+            "Dice Coefficient của U-Net khi phân đoạn phổi, đo TRÊN TOÀN TẬP VAL lúc "
+            "train (không phải tính riêng cho ảnh này — ảnh mới không có ground-truth "
+            "để tính per-image). Xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md."
+        ),
+        example=0.986,
     )
     iou_score: float = Field(
         ...,
-        description="Chỉ số IoU (Intersection over Union / Jaccard Index) đo độ bao phủ vùng tổn thương (0 đến 1.0)",
-        example=0.815,
+        description=(
+            "IoU giữa vùng Grad-CAM 'nóng' và mask phổi (U-Net) CHO ẢNH NÀY — chỉ số tin "
+            "cậy giải thích, thấp nghĩa là model có thể đang nhìn ra ngoài phổi để chẩn "
+            "đoán (shortcut learning), xem docs/LY_THUYET.md Phần VIII."
+        ),
+        example=0.42,
     )
     precision: float = Field(
         ...,
-        description="Độ chính xác trong việc khoanh vùng tổn thương (%)",
-        example=93.8,
+        description="Macro Precision của classifier, đo TRÊN TOÀN TẬP VAL lúc train (không phải riêng ảnh này, %)",
+        example=90.8,
     )
     recall: float = Field(
         ...,
-        description="Độ nhạy / Tỷ lệ phát hiện đúng vùng tổn thương (%)",
-        example=91.5,
+        description="Macro Recall của classifier, đo TRÊN TOÀN TẬP VAL lúc train (không phải riêng ảnh này, %)",
+        example=90.7,
     )
     affected_lung_area: float = Field(
         ...,
-        description="Tỷ lệ diện tích phổi bị tổn thương so với tổng diện tích phổi (%)",
+        description="Tỷ lệ vùng phổi (theo mask U-Net) trùng với vùng Grad-CAM 'nóng' — ước lượng diện tích phổi model đang chú ý khi chẩn đoán (%)",
         example=18.4,
     )
     inference_time_ms: float = Field(
@@ -44,7 +52,11 @@ class PredictionResponse(BaseModel):
     )
     disease: str = Field(
         ...,
-        description="Tên bệnh được mô hình dự đoán (COVID-19, Viral Pneumonia, Normal, Lung Opacity)",
+        description=(
+            "Tên bệnh được mô hình dự đoán — model hiện chỉ train 3 lớp: "
+            "COVID-19, Lung Opacity, Normal (Viral Pneumonia CHƯA được hỗ trợ, "
+            "xem docs/THAY_DOI_TICH_HOP_BACKEND.md)."
+        ),
         example="COVID-19",
     )
     confidence: float = Field(
@@ -59,7 +71,10 @@ class PredictionResponse(BaseModel):
     )
     result_image_url: str = Field(
         ...,
-        description="Đường dẫn URL ảnh kết quả phân đoạn tổn thương (Segmentation Mask)",
+        description=(
+            "Đường dẫn URL ảnh mask VÙNG PHỔI (từ U-Net, tô xanh lá) chồng lên ảnh gốc — "
+            "model hiện KHÔNG phân đoạn vùng tổn thương cụ thể, chỉ định vị vùng phổi."
+        ),
         example="http://localhost:8000/static/results/sample.png",
     )
     heatmap_url: str = Field(

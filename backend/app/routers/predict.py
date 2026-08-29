@@ -43,13 +43,11 @@ def get_sample_images(request: Request):
             "image_url": f"{base_url}/static/samples/sample_covid.png",
             "description": "Ảnh X-quang bệnh nhân có tổn thương đông đặc do COVID-19",
         },
-        {
-            "id": "sample_pneumonia",
-            "name": "Viral Pneumonia",
-            "category": "Viral Pneumonia",
-            "image_url": f"{base_url}/static/samples/sample_pneumonia.png",
-            "description": "Ảnh X-quang có tổn thương viêm kẽ do virus",
-        },
+        # "sample_pneumonia" đã bỏ khỏi danh sách: model chỉ train 3 lớp
+        # (Normal/Lung_Opacity/COVID) — KHÔNG có lớp Viral Pneumonia, xem
+        # docs/THAY_DOI_TICH_HOP_BACKEND.md và CLAUDE.md (preprocess.py loại lớp này
+        # từ đầu dự án). File ảnh mẫu vẫn còn ở frontend/samples/ nếu sau này train
+        # thêm lớp thứ 4.
         {
             "id": "sample_opacity",
             "name": "Lung Opacity",
@@ -121,6 +119,14 @@ async def upload_and_predict(request: Request, file: UploadFile = File(...)):
     result_image_url = f"{base_url}/static/results/{unique_filename}"
     heatmap_url = f"{base_url}/static/heatmaps/{unique_filename}"
 
+    # Ghép cảnh báo động (model chưa train / shortcut learning nghi vấn — xem
+    # ai_engine.py::predict_and_save) vào SAU câu khuyến cáo y tế cố định, thay vì
+    # trả disclaimer tĩnh như trước — không đổi schema (vẫn 1 field "disclaimer": str).
+    disclaimer = DEFAULT_MEDICAL_DISCLAIMER
+    warning = prediction_data.get("warning")
+    if warning:
+        disclaimer = f"{disclaimer} {warning}"
+
     return {
         "record_code": record_code,
         "message": "Phân tích thành công",
@@ -130,6 +136,6 @@ async def upload_and_predict(request: Request, file: UploadFile = File(...)):
         "result_image_url": result_image_url,
         "heatmap_url": heatmap_url,
         "metrics": prediction_data.get("metrics"),
-        "disclaimer": DEFAULT_MEDICAL_DISCLAIMER,
+        "disclaimer": disclaimer,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }

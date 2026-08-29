@@ -5,4 +5,14 @@ pydantic>=2.6.0
 numpy>=1.24.0
 opencv-python-headless>=4.9.0
 pillow>=10.0.0
-# ultralytics>=8.1.0  # Cài đặt khi huấn luyện hoặc tải mô hình YOLOv8/YOLOv10
+
+# Model AI thật (EfficientNet-B3 + U-Net + Grad-CAM) — xem app/services/ai_engine.py.
+# Đây là requirements cho SERVING (suy luận), không phải train — pip install torch mặc
+# định (bản CPU) là đủ dùng, không cần chỉ định CUDA index URL như lúc train. Nếu máy
+# chạy backend có GPU và muốn tận dụng, cài torch/torchvision qua kênh CUDA tại
+# https://pytorch.org TRƯỚC khi chạy `pip install -r` file này (tránh bị ghi đè).
+torch>=2.1.0
+torchvision>=0.16.0
+albumentations>=1.3.1
+segmentation-models-pytorch>=0.3.3
+grad-cam>=1.5.0

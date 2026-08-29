@@ -16,6 +16,14 @@ COVID-19_Radiography_Dataset/
 data/processed/
 data/split/
 
+# Trained weights & generated figures (keep folder via .gitkeep)
+weights/*
+!weights/.gitkeep
+figures/*
+!figures/.gitkeep
+
+# Python
+*.pyc
 # Backend uploads & weights (chỉ giữ .gitkeep)
 backend/uploads/raw/*
 !backend/uploads/raw/.gitkeep

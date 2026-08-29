@@ -8,12 +8,16 @@ from app.core.config import (
     APP_DESCRIPTION,
     APP_TITLE,
     APP_VERSION,
+    CLASSIFIER_WEIGHTS,
+    CROPPED_CLASSIFIER_WEIGHTS,
+    BLACKOUT_CLASSIFIER_WEIGHTS,
     DEFAULT_MODEL_WEIGHTS,
     FRONTEND_DIR,
     HEATMAPS_DIR,
     RAW_IMAGES_DIR,
     RESULT_IMAGES_DIR,
     SAMPLES_DIR,
+    UNET_WEIGHTS,
 )
 from app.routers import predict
 from app.schemas.prediction import HealthResponse
@@ -22,8 +26,18 @@ from app.services.ai_engine import MedicalSegmentationModel
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Khởi tạo mô hình AI và nạp vào app state
-    app.state.model = MedicalSegmentationModel(str(DEFAULT_MODEL_WEIGHTS))
+    # Khởi tạo mô hình AI (classifier + U-Net thật) và nạp vào app state — 1 lần duy
+    # nhất lúc khởi động, dùng lại cho mọi request (xem src/model.py, src/unet.py).
+    # MedicalSegmentationModel tự ưu tiên theo thứ tự CROPPED_CLASSIFIER_WEIGHTS >
+    # BLACKOUT_CLASSIFIER_WEIGHTS > CLASSIFIER_WEIGHTS (baseline) — CROPPED cân bằng
+    # tốt nhất accuracy/shortcut (xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.5-5.6),
+    # BLACKOUT chỉ dùng khi CROPPED thiếu/lỗi, xem ai_engine.py.
+    app.state.model = MedicalSegmentationModel(
+        str(CLASSIFIER_WEIGHTS),
+        str(UNET_WEIGHTS),
+        cropped_classifier_path=str(CROPPED_CLASSIFIER_WEIGHTS),
+        blackout_classifier_path=str(BLACKOUT_CLASSIFIER_WEIGHTS),
+    )
     print("[INFO] Server đã sẵn sàng nhận ảnh phân tích (Chế độ Privacy-First).")
 
     yield  # Server chạy

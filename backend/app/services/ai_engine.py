@@ -1,104 +1,301 @@
-import cv2
-import os
+"""Model AI thật cho backend/frontend — thay logic MOCK (giả theo tên file) trước đây.
+
+Nạp classifier (EfficientNet-B3) + U-Net đã train từ weights/ ở GỐC REPO (dùng chung với
+phần còn lại của dự án, xem app/core/config.py::CLASSIFIER_WEIGHTS/UNET_WEIGHTS — không
+copy trùng file .pth vào backend/weights/), chạy pipeline classification + Grad-CAM +
+lung-segmentation thật. Xem docs/THAY_DOI_TICH_HOP_BACKEND.md cho đầy đủ quyết định thiết
+kế (ánh xạ field với schemas/prediction.py, vì sao chỉ 3 lớp thay vì 4, vì sao
+dice/precision/recall là số tổng hợp trên tập test thay vì tính riêng từng ảnh).
+
+Tự động ưu tiên dùng bản classifier "đã tối ưu" (train trên ảnh crop theo mask phổi —
+xem notebooks/train_classifier_cropped.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5)
+nếu weights/best_classifier_cropped.pth tồn tại; nếu không, dùng bản baseline — cùng
+nguyên tắc fallback graceful đã áp dụng xuyên suốt dự án.
+"""
+
 import time
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import cv2
 import numpy as np
-from typing import Any, Dict
-# from ultralytics import YOLO  # Bỏ comment khi tích hợp mô hình YOLO chính thức
+import torch
+from PIL import Image
+
+# app.core.config đã tự thêm REPO_ROOT vào sys.path khi import — import nó TRƯỚC để
+# "import src.xxx" bên dưới hoạt động, bất kể uvicorn chạy với cwd nào.
+from app.core import config as _config  # noqa: F401  (side-effect: sys.path đã có REPO_ROOT)
+
+from src.dataset import (
+    IDX_TO_CLASS,
+    IMAGE_SIZE,
+    NUM_CLASSES,
+    crop_to_lung_bbox,
+    crop_to_lung_bbox_blackout,
+    get_val_transforms,
+)
+from src.gradcam import generate_gradcam, overlay_heatmap
+from src.model import build_classifier, load_classifier
+from src.shortcut_iou import binarize, containment, iou, predict_lung_mask
+from src.unet import build_unet
+
+# Tên hiển thị cho người dùng. Model chỉ có 3 lớp THẬT (Viral Pneumonia KHÔNG được train —
+# bị loại khỏi pipeline từ src/preprocess.py đầu dự án, xem CLAUDE.md) — KHÔNG dùng chữ
+# "Pneumonia" để tránh người dùng hiểu nhầm đây là chẩn đoán viêm phổi do virus.
+DISPLAY_NAME = {"Normal": "Normal", "Lung_Opacity": "Lung Opacity", "COVID": "COVID-19"}
+
+GRADCAM_THRESH = 0.5
+LOW_TRUST_CONTAINMENT = 0.3  # dưới ngưỡng này: cảnh báo model có thể đang nhìn ngoài phổi
+CROP_PADDING = 0.1  # PHẢI khớp giá trị dùng lúc train notebooks/train_classifier_cropped.ipynb
+
+# Số liệu TỔNG HỢP trên val set (1350 ảnh, KHÔNG PHẢI tính riêng cho từng ảnh upload —
+# ảnh mới không có ground-truth để tính per-image) — lấy từ lần train + đánh giá gần nhất,
+# xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md. Cập nhật lại 3 số này bằng
+# notebooks/evaluate_local.ipynb mỗi khi train lại model. Có 2 bộ: baseline và bản crop
+# (đã tối ưu) — chọn đúng bộ theo self.crop_mode lúc trả metrics.
+AGGREGATE_METRICS_BASELINE = {
+    "dice_score": 0.9862,   # U-Net, Val Dice
+    "precision": 0.9075,    # Classifier baseline, Macro Precision (val set)
+    "recall": 0.9067,       # Classifier baseline, Macro Recall (val set)
+}
+AGGREGATE_METRICS_CROPPED = {
+    "dice_score": 0.9862,   # U-Net không đổi (không train lại U-Net)
+    "precision": 0.9322,    # Classifier CROP, Macro Precision (val set)
+    "recall": 0.9304,       # Classifier CROP, Macro Recall (val set)
+}
+# Số liệu THẬT, đo trực tiếp trên val set (1350 ảnh) sau khi train xong
+# notebooks/train_classifier_blackout.ipynb — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md
+# Phần 5.5. LƯU Ý: macro F1 (0.8659) THẤP HƠN CẢ baseline (0.9057) — blackout đổi
+# accuracy lấy giảm shortcut mạnh (COVID %IoU=0 giảm 27.3%→4.2%), một đánh đổi thật,
+# không phải lỗi số liệu — xem diễn giải đầy đủ trong báo cáo trước khi coi đây là
+# bản "tốt nhất" để dùng mặc định.
+AGGREGATE_METRICS_BLACKOUT = {
+    "dice_score": 0.9862,   # U-Net không đổi
+    "precision": 0.8663,    # Classifier BLACKOUT, Macro Precision (val set)
+    "recall": 0.8659,       # Classifier BLACKOUT, Macro Recall (val set)
+}
 
 
 class MedicalSegmentationModel:
-    def __init__(self, model_path: str):
-        self.model_path = model_path
-        print(f"[INFO] Nạp mô hình phân đoạn từ: {model_path}")
+    """Bọc quanh classifier + U-Net thật, giữ NGUYÊN interface `predict_and_save()` mà
+    backend/app/routers/predict.py đang gọi — không đổi chữ ký hàm cũ, chỉ thêm tham số
+    tuỳ chọn `cropped_classifier_path`, không đổi schemas/prediction.py."""
 
-        # Khi có file weights thật:
-        # if os.path.exists(model_path):
-        #     self.model = YOLO(model_path)
-        # else:
-        #     print(f"[WARN] Chưa tìm thấy weights tại {model_path}, khởi chạy ở chế độ MOCK.")
-        #     self.model = "MOCK_MODEL"
-        self.model = "MOCK_MODEL_LOADED"
+    def __init__(
+        self,
+        classifier_path: str,
+        unet_path: str,
+        device: Optional[str] = None,
+        cropped_classifier_path: Optional[str] = None,
+        blackout_classifier_path: Optional[str] = None,
+    ):
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.classifier_is_trained = False
+        self.unet_is_trained = False
+        self.crop_mode = False
+        self.blackout_mode = False  # True CHỈ khi bản blackout cụ thể được load (xem crop_mode)
+
+        # --- Classifier: ưu tiên theo thứ tự cropped > blackout > baseline. CROPPED
+        # làm mặc định vì cân bằng tốt nhất accuracy/shortcut (xem
+        # docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.5): blackout giảm shortcut mạnh
+        # hơn NHƯNG Macro F1 val giảm xuống DƯỚI CẢ baseline (0.8659 < 0.9057) — "mới
+        # hơn" không có nghĩa "tốt hơn" ở đây, nên KHÔNG ưu tiên nó dù có sẵn. BLACKOUT
+        # vẫn tự dùng được nếu CROPPED thiếu/lỗi — không rơi thẳng về baseline. Giống
+        # cơ chế trong api/inference.py — an toàn để merge, không đổi hành vi hiện tại
+        # nếu weights tương ứng chưa tồn tại. ---
+        if cropped_classifier_path and Path(cropped_classifier_path).exists():
+            try:
+                self.classifier = load_classifier(
+                    cropped_classifier_path, num_classes=NUM_CLASSES, device=self.device, verbose=True
+                )
+                self.classifier_is_trained = True
+                self.crop_mode = True
+                print(f"[ai_engine] OK: dung classifier DA TOI UU (crop) tu {cropped_classifier_path}")
+            except Exception as exc:
+                print(
+                    f"[ai_engine] WARNING: co {cropped_classifier_path} nhung load loi "
+                    f"({type(exc).__name__}: {exc}) - fallback ve classifier blackout/baseline."
+                )
+
+        if not self.classifier_is_trained and blackout_classifier_path and Path(blackout_classifier_path).exists():
+            try:
+                self.classifier = load_classifier(
+                    blackout_classifier_path, num_classes=NUM_CLASSES, device=self.device, verbose=True
+                )
+                self.classifier_is_trained = True
+                self.crop_mode = True
+                self.blackout_mode = True
+                print(f"[ai_engine] OK: dung classifier BLACKOUT (fallback tu cropped) tu {blackout_classifier_path}")
+            except Exception as exc:
+                print(
+                    f"[ai_engine] WARNING: co {blackout_classifier_path} nhung load loi "
+                    f"({type(exc).__name__}: {exc}) - fallback ve classifier baseline."
+                )
+
+        if not self.classifier_is_trained:
+            classifier_p = Path(classifier_path)
+            if classifier_p.exists():
+                try:
+                    self.classifier = load_classifier(
+                        str(classifier_p), num_classes=NUM_CLASSES, device=self.device, verbose=True
+                    )
+                    self.classifier_is_trained = True
+                    self.crop_mode = False
+                    print(f"[ai_engine] OK: dung classifier BASELINE tu {classifier_p}")
+                except Exception as exc:
+                    print(
+                        f"[ai_engine] WARNING: khong load duoc classifier tu {classifier_p} "
+                        f"({type(exc).__name__}: {exc}) - fallback backbone ImageNet pretrained."
+                    )
+            else:
+                print(f"[ai_engine] WARNING: khong tim thay {classifier_p} - fallback backbone ImageNet pretrained.")
+
+        if not self.classifier_is_trained:
+            self.classifier = build_classifier(num_classes=NUM_CLASSES, pretrained=True, verbose=True)
+            self.classifier.to(self.device).eval()
+            self.crop_mode = False
+
+        # --- U-Net: cùng cơ chế fallback ---
+        unet_p = Path(unet_path)
+        if unet_p.exists():
+            try:
+                self.unet = build_unet(pretrained=False, verbose=False)
+                self.unet.load_state_dict(torch.load(str(unet_p), map_location=self.device))
+                self.unet.to(self.device).eval()
+                self.unet_is_trained = True
+            except Exception as exc:
+                print(
+                    f"[ai_engine] WARNING: khong load duoc U-Net tu {unet_p} "
+                    f"({type(exc).__name__}: {exc}) - fallback encoder pretrained."
+                )
+        else:
+            print(f"[ai_engine] WARNING: khong tim thay {unet_p} - fallback encoder pretrained.")
+
+        if not self.unet_is_trained:
+            self.unet = build_unet(pretrained=True, verbose=False)
+            self.unet.to(self.device).eval()
+
+        self.transform = get_val_transforms()
+        print(
+            f"[ai_engine] READY | classifier_trained={self.classifier_is_trained} "
+            f"crop_mode={self.crop_mode} blackout_mode={self.blackout_mode} "
+            f"unet_trained={self.unet_is_trained} device={self.device}"
+        )
 
     def predict_and_save(
         self, image_path: str, mask_output_path: str, heatmap_output_path: str
     ) -> Dict[str, Any]:
-        """
-        Đọc ảnh từ ổ cứng, chạy dự đoán phân đoạn tổn thương, tạo Grad-CAM heatmap và tính toán metrics.
-        """
-        start_time = time.time()
+        """Đọc ảnh từ đĩa, chạy classifier + Grad-CAM + U-Net, lưu 2 ảnh kết quả ra đĩa,
+        trả về dict khớp field mà backend/app/routers/predict.py cần (disease, confidence,
+        metrics) để build PredictionResponse."""
+        t0 = time.time()
 
-        # 1. Đọc ảnh X-quang
-        img = cv2.imread(image_path)
-        if img is None:
-            raise ValueError(f"Không thể đọc file ảnh tại đường dẫn: {image_path}")
+        pil_image = Image.open(image_path).convert("RGB")
+        image_np = np.array(pil_image)                       # (H0,W0,3) RGB uint8
+        image_resized = cv2.resize(image_np, IMAGE_SIZE)      # (224,224,3) RGB — ảnh gốc đã resize
 
-        # 2. Phân tích ngữ cảnh tên file để giả lập kết quả phù hợp cho việc demo
-        lower_path = image_path.lower()
-        if "normal" in lower_path:
-            disease = "Phổi bình thường (Normal)"
-            confidence = 96.8
-            dice_score = 0.954
-            iou_score = 0.912
-            precision = 97.2
-            recall = 95.8
-            affected_area = 0.0
-        elif "pneumonia" in lower_path:
-            disease = "Viêm phổi do Virus (Viral Pneumonia)"
-            confidence = 91.4
-            dice_score = 0.876
-            iou_score = 0.798
-            precision = 92.1
-            recall = 89.5
-            affected_area = 14.2
-        elif "opacity" in lower_path:
-            disease = "Mờ phổi (Lung Opacity)"
-            confidence = 88.9
-            dice_score = 0.852
-            iou_score = 0.764
-            precision = 89.4
-            recall = 86.8
-            affected_area = 21.6
+        if self.crop_mode:
+            # Bản ĐÃ TỐI ƯU: U-Net chạy TRƯỚC để lấy mask, dùng mask đó crop ảnh trước
+            # khi đưa vào classifier (classifier này được train trên ảnh đã crop). Grad-CAM
+            # sau đó cũng chạy trên ảnh ĐÃ CROP — overlay hiển thị trên khung ảnh đã crop.
+            unet_input = self.transform(image=image_np)["image"]
+            lung_mask = predict_lung_mask(self.unet, unet_input)
+            # blackout_mode: xoá pixel NGOÀI hình dạng phổi (không chỉ ngoài bounding
+            # box) — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4.
+            crop_fn = crop_to_lung_bbox_blackout if self.blackout_mode else crop_to_lung_bbox
+            classifier_input_np = crop_fn(image_resized, lung_mask, padding=CROP_PADDING)
+            img_tensor = self.transform(image=classifier_input_np)["image"]
+            overlay_base = cv2.resize(classifier_input_np, IMAGE_SIZE)
         else:
-            disease = "COVID-19"
-            confidence = 94.2
-            dice_score = 0.895
-            iou_score = 0.823
-            precision = 93.6
-            recall = 91.8
-            affected_area = 18.7
+            # Bản BASELINE — giữ nguyên hành vi gốc.
+            img_tensor = self.transform(image=image_np)["image"]
+            overlay_base = image_resized
+            lung_mask = None  # tính sau, dùng chung code với nhánh trên
 
-        # 3. Tạo ảnh phân đoạn (Segmentation Mask) & Bản đồ nhiệt (Grad-CAM Heatmap)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        with torch.no_grad():
+            logits = self.classifier(img_tensor.unsqueeze(0).to(self.device))
+            probs = logits.softmax(dim=1)[0].cpu().numpy()
 
-        if "normal" in lower_path:
-            mask_overlay = img.copy()
+        pred_idx = int(probs.argmax())
+        pred_class = IDX_TO_CLASS[pred_idx]                   # "Normal" | "Lung_Opacity" | "COVID"
+        disease = DISPLAY_NAME[pred_class]
+
+        # NGOÀI torch.no_grad() ở trên — Grad-CAM cần backward pass thật.
+        heatmap = generate_gradcam(self.classifier, img_tensor, target_class=pred_idx)
+        heatmap_overlay = overlay_heatmap(overlay_base, heatmap)  # (224,224,3) RGB
+
+        if lung_mask is None:
+            lung_mask = predict_lung_mask(self.unet, img_tensor)   # (224,224) {0,1}, hệ toạ độ ẢNH GỐC
+
+        # Mask hiển thị: LUÔN vẽ trên ảnh gốc CHƯA crop (dễ hiểu hơn mask đã crop, nhìn
+        # gần như trắng xoá toàn khung) — tô xanh lá bán trong suốt lên vùng phổi.
+        mask_display = image_resized.copy()
+        lung_bool = lung_mask > 0
+        mask_display[lung_bool] = (
+            0.5 * mask_display[lung_bool].astype(np.float32) + 0.5 * np.array([0, 255, 0], dtype=np.float32)
+        ).astype(np.uint8)
+
+        # Chỉ số tin cậy giải thích — so khớp heatmap với mask phổi, cùng công thức
+        # src/shortcut_iou.py dùng để kiểm định shortcut learning toàn tập test.
+        cam_bin = binarize(heatmap, GRADCAM_THRESH)
+        if self.crop_mode:
+            # So khớp trong ĐÚNG hệ toạ độ đã crop — cắt mask theo cùng box rồi resize
+            # khớp kích thước heatmap (luôn 224×224 sau transform, bất kể box to nhỏ).
+            # LƯU Ý: containment/affected_lung_area sau crop tự nhiên cao hơn vì hiệu ứng
+            # hình học (mask chiếm tỉ lệ khung hình lớn hơn), không hẳn vì model "học tốt
+            # hơn" — xem cảnh báo tương tự trong src/shortcut_iou.py.
+            compare_mask = crop_to_lung_bbox(lung_mask, lung_mask, padding=CROP_PADDING)
+            if compare_mask.shape != cam_bin.shape:
+                compare_mask = cv2.resize(
+                    compare_mask, (cam_bin.shape[1], cam_bin.shape[0]), interpolation=cv2.INTER_NEAREST
+                )
         else:
-            # Tạo hiệu ứng mask màu đỏ vùng tổn thương phổi
-            _, thresh = cv2.threshold(gray, 130, 255, cv2.THRESH_BINARY)
-            mask_colored = np.zeros_like(img)
-            mask_colored[:, :, 2] = thresh  # Kênh Red
-            mask_overlay = cv2.addWeighted(img, 0.7, mask_colored, 0.5, 0)
+            compare_mask = lung_mask
 
-        cv2.imwrite(mask_output_path, mask_overlay)
+        iou_score = iou(cam_bin, compare_mask)
+        cont = containment(cam_bin, compare_mask)
 
-        # Tạo heatmap Grad-CAM (JET colormap)
-        heatmap = cv2.applyColorMap(gray, cv2.COLORMAP_JET)
-        heatmap_overlay = cv2.addWeighted(img, 0.55, heatmap, 0.45, 0)
-        cv2.imwrite(heatmap_output_path, heatmap_overlay)
+        compare_area = int(compare_mask.sum())
+        affected_lung_area = (
+            float(np.logical_and(cam_bin.astype(bool), compare_mask.astype(bool)).sum() / compare_area * 100)
+            if compare_area > 0
+            else 0.0
+        )
 
-        elapsed_ms = round((time.time() - start_time) * 1000 + 25.0, 1)
+        # PIL/src.gradcam trả RGB — cv2.imwrite cần BGR, đổi lại trước khi ghi đĩa.
+        cv2.imwrite(heatmap_output_path, cv2.cvtColor(heatmap_overlay, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(mask_output_path, cv2.cvtColor(mask_display, cv2.COLOR_RGB2BGR))
 
-        # 4. Trả về kết quả chẩn đoán và các chỉ số đánh giá (Evaluation Metrics)
+        elapsed_ms = round((time.time() - t0) * 1000, 1)
+
+        if self.blackout_mode:
+            aggregate = AGGREGATE_METRICS_BLACKOUT
+        elif self.crop_mode:
+            aggregate = AGGREGATE_METRICS_CROPPED
+        else:
+            aggregate = AGGREGATE_METRICS_BASELINE
+        metrics = dict(aggregate)
+        metrics["iou_score"] = round(float(iou_score), 3)
+        metrics["affected_lung_area"] = round(affected_lung_area, 1)
+        metrics["inference_time_ms"] = elapsed_ms
+
+        warning = None
+        if not self.classifier_is_trained:
+            warning = (
+                "CANH BAO: classifier CHUA duoc huan luyen (dang dung backbone ImageNet "
+                "pretrained + head khoi tao ngau nhien). Ket qua KHONG co y nghia chan doan."
+            )
+        elif not self.unet_is_trained:
+            warning = "CANH BAO: U-Net chua duoc huan luyen - mask phoi va iou_score khong dang tin cay."
+        elif cont < LOW_TRUST_CONTAINMENT:
+            warning = (
+                f"LUU Y: model dang tap trung khoang {100 * (1 - cont):.0f}% vao vung NGOAI "
+                "phoi cho anh nay - ket qua co the khong dang tin cay (xem docs/LY_THUYET.md Phan VIII)."
+            )
+
         return {
             "disease": disease,
-            "confidence": confidence,
-            "metrics": {
-                "dice_score": dice_score,
-                "iou_score": iou_score,
-                "precision": precision,
-                "recall": recall,
-                "affected_lung_area": affected_area,
-                "inference_time_ms": elapsed_ms,
-            },
-            "status": "success",
+            "confidence": round(float(probs[pred_idx]) * 100, 1),  # schema quy ước 0-100%
+            "metrics": metrics,
+            "warning": warning,  # đọc ở routers/predict.py, ghép vào disclaimer nếu có
         }
