@@ -10,7 +10,7 @@ import requests
 from PIL import Image
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
-PREDICT_ENDPOINT = f"{BACKEND_URL}/predict"
+PREDICT_ENDPOINT = f"{BACKEND_URL}/api/v1/predict"
 METRICS_ENDPOINT = f"{BACKEND_URL}/metrics"
 REQUEST_TIMEOUT_SEC = 15  # tránh treo UI khi backend đơ / timeout
 
