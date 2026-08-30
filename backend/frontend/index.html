@@ -583,15 +583,9 @@
 
     .metrics-table-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 10px;
       margin-bottom: 20px;
-    }
-
-    @media (max-width: 768px) {
-      .metrics-table-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
     }
 
     .metric-cell {
@@ -849,30 +843,8 @@
           <p>Hệ Thống Phân Tích & Hỗ Trợ Chẩn Đoán Hình Ảnh X-Quang Phổi</p>
         </div>
       </a>
-      <div class="header-status">
-        <div class="privacy-tag">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-          Chế độ Bảo Mật Không Lưu Hồ Sơ (Privacy-First)
-        </div>
-        <div class="system-status">
-          <div class="status-dot"></div>
-          <span>INFERENCE ENGINE ONLINE</span>
-        </div>
-      </div>
     </div>
   </header>
-
-  <!-- Technical Meta Bar -->
-  <div class="meta-bar">
-    <div class="meta-bar-inner">
-      <div class="meta-item">Giao thức phân tích: <span>YOLOv10 Segmentation & Grad-CAM Heatmap</span></div>
-      <div class="meta-item">Độ phân giải chuẩn hóa: <span>256 x 256 px</span></div>
-      <div class="meta-item">Cơ chế xử lý: <span>On-the-fly In-Memory Inference</span></div>
-    </div>
-  </div>
 
   <!-- Main Grid Workspace -->
   <main>
@@ -1003,26 +975,6 @@
             <div class="metrics-header">Bảng chỉ số đánh giá kỹ thuật (Evaluation Metrics)</div>
             <div class="metrics-table-grid">
               <div class="metric-cell">
-                <div class="metric-cell-name">Dice Similarity (F1)</div>
-                <div class="metric-cell-value" id="mDice">0.895</div>
-                <div class="metric-cell-desc">Độ trùng khớp phân đoạn</div>
-              </div>
-              <div class="metric-cell">
-                <div class="metric-cell-name">IoU (Jaccard Index)</div>
-                <div class="metric-cell-value" id="mIoU">0.823</div>
-                <div class="metric-cell-desc">Tỷ lệ diện tích giao thoa</div>
-              </div>
-              <div class="metric-cell">
-                <div class="metric-cell-name">Precision</div>
-                <div class="metric-cell-value" id="mPrecision">93.6%</div>
-                <div class="metric-cell-desc">Độ chính xác khoanh vùng</div>
-              </div>
-              <div class="metric-cell">
-                <div class="metric-cell-name">Sensitivity (Recall)</div>
-                <div class="metric-cell-value" id="mRecall">91.8%</div>
-                <div class="metric-cell-desc">Độ nhạy phát hiện bệnh</div>
-              </div>
-              <div class="metric-cell">
                 <div class="metric-cell-name">Tổn thương phổi</div>
                 <div class="metric-cell-value" id="mAffected">18.7%</div>
                 <div class="metric-cell-desc">% Tổng diện tích phổi</div>
@@ -1038,7 +990,7 @@
             <div class="viewer-container">
               <div class="viewer-tabs">
                 <button class="v-tab active" onclick="switchView('raw', this)">Ảnh X-Quang Gốc</button>
-                <button class="v-tab" onclick="switchView('mask', this)">Phân Đoạn Vùng Tổn Thương (Mask)</button>
+                <button class="v-tab" onclick="switchView('mask', this)">Segmentation Phổi (Mask)</button>
                 <button class="v-tab" onclick="switchView('heatmap', this)">Bản Đồ Nhiệt Grad-CAM</button>
               </div>
 
@@ -1099,7 +1051,7 @@
       <div>Đối tượng: <strong>Bệnh nhân ngoại trú (Khám sàng lọc)</strong></div>
       <div>Vùng chụp: <strong>X-quang ngực thẳng (PA View)</strong></div>
       <div>Tệp ảnh gốc: <span id="printFilename">scan.png</span></div>
-      <div>Mô hình AI: <strong>YOLOv10 Segmentation & Grad-CAM</strong></div>
+      <div>Mô hình AI: <strong>U-Net Segmentation & Grad-CAM</strong></div>
     </div>
 
     <div class="report-images">
@@ -1109,7 +1061,7 @@
       </div>
       <div>
         <img id="printMaskImg" src="" alt="Mask">
-        <div class="report-img-label">2. Phân đoạn tổn thương (Mask)</div>
+        <div class="report-img-label">2. Segmentation Phổi (Mask)</div>
       </div>
       <div>
         <img id="printHeatmapImg" src="" alt="Grad-CAM">
@@ -1132,24 +1084,6 @@
           <td><strong id="printConfidence">94.2%</strong></td>
           <td>> 85.0%</td>
           <td>Mức độ tin cậy của thuật toán phân loại</td>
-        </tr>
-        <tr>
-          <td>Hệ số tương đồng Dice (DSC / F1)</td>
-          <td><strong id="printDice">0.895</strong></td>
-          <td>> 0.800</td>
-          <td>Độ trùng khớp vùng tổn thương phân đoạn</td>
-        </tr>
-        <tr>
-          <td>Chỉ số Jaccard (IoU)</td>
-          <td><strong id="printIoU">0.823</strong></td>
-          <td>> 0.750</td>
-          <td>Tỷ lệ bao phủ diện tích tổn thương</td>
-        </tr>
-        <tr>
-          <td>Độ chính xác & Độ nhạy (Precision / Recall)</td>
-          <td><strong id="printPrecRec">93.6% / 91.8%</strong></td>
-          <td>> 90.0%</td>
-          <td>Độ nhạy phát hiện vùng bệnh</td>
         </tr>
         <tr>
           <td>Tỷ lệ tổn thương phổi (% Lung Area)</td>
@@ -1312,20 +1246,12 @@
       }, 50);
 
       const m = data.metrics || {
-        dice_score: 0.895,
-        iou_score: 0.823,
-        precision: 93.6,
-        recall: 91.8,
         affected_lung_area: 18.7,
         inference_time_ms: 32.2
       };
 
-      document.getElementById('mDice').textContent = (m.dice_score || 0).toFixed(3);
-      document.getElementById('mIoU').textContent = (m.iou_score || 0).toFixed(3);
-      document.getElementById('mPrecision').textContent = (m.precision || 0).toFixed(1) + '%';
-      document.getElementById('mRecall').textContent = (m.recall || 0).toFixed(1) + '%';
-      document.getElementById('mAffected').textContent = (m.affected_lung_area || 0).toFixed(1) + '%';
-      document.getElementById('mTime').textContent = (m.inference_time_ms || 0).toFixed(1) + ' ms';
+      if (document.getElementById('mAffected')) document.getElementById('mAffected').textContent = (m.affected_lung_area || 0).toFixed(1) + '%';
+      if (document.getElementById('mTime')) document.getElementById('mTime').textContent = (m.inference_time_ms || 0).toFixed(1) + ' ms';
 
       if (data.disclaimer) {
         document.getElementById('resDisclaimer').textContent = data.disclaimer;
@@ -1365,10 +1291,7 @@
       document.getElementById('printConfidence').textContent = (analysisResult.confidence || 90).toFixed(1) + '%';
 
       const m = analysisResult.metrics || {};
-      document.getElementById('printDice').textContent = (m.dice_score || 0.895).toFixed(3);
-      document.getElementById('printIoU').textContent = (m.iou_score || 0.823).toFixed(3);
-      document.getElementById('printPrecRec').textContent = `${(m.precision || 93.6).toFixed(1)}% / ${(m.recall || 91.8).toFixed(1)}%`;
-      document.getElementById('printArea').textContent = (m.affected_lung_area || 18.7).toFixed(1) + '%';
+      if (document.getElementById('printArea')) document.getElementById('printArea').textContent = (m.affected_lung_area || 18.7).toFixed(1) + '%';
 
       document.getElementById('printRawImg').src = analysisResult.raw_image_url;
       document.getElementById('printMaskImg').src = analysisResult.result_image_url;
