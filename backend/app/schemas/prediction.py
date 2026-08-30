@@ -36,6 +36,16 @@ class EvaluationMetrics(BaseModel):
         description="Tỷ lệ vùng phổi (theo mask U-Net) trùng với vùng Grad-CAM 'nóng' — ước lượng diện tích phổi model đang chú ý khi chẩn đoán (%)",
         example=18.4,
     )
+    pointing_game: Optional[str] = Field(
+        "Hit",
+        description="Kết quả Pointing Game: 'Hit' nếu điểm kích hoạt Grad-CAM cực đại nằm trong phổi, 'Miss' nếu nằm ngoài",
+        example="Hit",
+    )
+    soft_containment: Optional[float] = Field(
+        95.0,
+        description="Soft Containment: Tỷ lệ năng lượng kích hoạt Grad-CAM nằm trọn trong vùng phổi (%)",
+        example=94.5,
+    )
     inference_time_ms: float = Field(
         ...,
         description="Thời gian mô hình AI xử lý và suy luận (mili-giây)",

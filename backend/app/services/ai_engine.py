@@ -262,6 +262,18 @@ class MedicalSegmentationModel:
             else 0.0
         )
 
+        # 1. Pointing Game: Kiểm tra điểm cực đại của Grad-CAM có nằm trong mask phổi không
+        max_loc = np.unravel_index(np.argmax(heatmap), heatmap.shape)
+        pointing_game = "Hit" if compare_mask[max_loc] > 0 else "Miss"
+
+        # 2. Soft Containment: Tỷ lệ năng lượng Grad-CAM nằm trong mask phổi (%)
+        total_energy = float(heatmap.sum())
+        soft_containment = (
+            float(heatmap[compare_mask > 0].sum() / total_energy * 100.0)
+            if total_energy > 0
+            else 0.0
+        )
+
         # PIL/src.gradcam trả RGB — cv2.imwrite cần BGR, đổi lại trước khi ghi đĩa.
         cv2.imwrite(heatmap_output_path, cv2.cvtColor(heatmap_overlay, cv2.COLOR_RGB2BGR))
         cv2.imwrite(mask_output_path, cv2.cvtColor(mask_display, cv2.COLOR_RGB2BGR))
@@ -277,6 +289,8 @@ class MedicalSegmentationModel:
         metrics = dict(aggregate)
         metrics["iou_score"] = round(float(iou_score), 3)
         metrics["affected_lung_area"] = round(affected_lung_area, 1)
+        metrics["pointing_game"] = pointing_game
+        metrics["soft_containment"] = round(soft_containment, 1)
         metrics["inference_time_ms"] = elapsed_ms
 
         warning = None
