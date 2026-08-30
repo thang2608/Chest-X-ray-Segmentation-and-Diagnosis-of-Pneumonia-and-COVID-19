@@ -145,8 +145,16 @@ docker run -d -p 80:8000 --restart always --name chest-cadx chest-cadx-app
 
 ## 👥 Thành Viên Thực Hiện
 
-* **Đỗ Đức Duy Thắng** - *Backend Architecture, AI Inference Pipeline, Web CADx UI & Cloud Deployment (Docker / VPS / Nginx / SSL)*
-* **Machine Learning & IoT Lab (HCMUT - EE)**
+| Họ và Tên | Vai trò / Trách nhiệm chính |
+| :--- | :--- |
+| **Đỗ Đức Duy Thắng** | Backend & Deployment |
+| **Đoàn Nhất Minh** | Model Lead |
+| **Nguyễn Bảo Tiên** | Frontend & Demo |
+| **Võ Lê Phúc Thịnh** | Evaluation & Report |
+| **Lê Nguyễn Minh Khôi** | Data Engineering |
+
+* **👨‍🏫 Mentor hướng dẫn:** Chu Minh Nguyên
+* **🏛️ Đơn vị:** Machine Learning & IoT Lab (HCMUT - EE)
 
 ---
 
