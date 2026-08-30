@@ -10,13 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 3. Thư mục làm việc trong container
 WORKDIR /app
 
-# 4. Cài đặt PyTorch CPU SIÊU NHẸ (~150MB thay vì 4.5GB CUDA) để tránh tràn ổ đĩa Docker
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
-
-# 5. Cài đặt các thư viện phụ trợ còn lại
+# 4. Cài đặt toàn bộ thư viện với PyTorch CPU siêu nhẹ (~180MB thay vì 4.5GB CUDA)
 COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch torchvision -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 # 6. Copy toàn bộ mã nguồn và trọng số model đã huấn luyện
 COPY src/ /app/src/
