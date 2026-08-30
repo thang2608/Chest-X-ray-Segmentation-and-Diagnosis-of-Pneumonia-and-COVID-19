@@ -147,11 +147,11 @@ docker run -d -p 80:8000 --restart always --name chest-cadx chest-cadx-app
 
 | Họ và Tên | Vai trò / Trách nhiệm chính |
 | :--- | :--- |
-| **Đỗ Đức Duy Thắng** | Backend & Deployment |
-| **Đoàn Nhất Minh** | Model Lead |
-| **Nguyễn Bảo Tiên** | Frontend & Demo |
-| **Võ Lê Phúc Thịnh** | Evaluation & Report |
-| **Lê Nguyễn Minh Khôi** | Data Engineering |
+| **Đỗ Đức Duy Thắng** | Backend + Deployment |
+| **Đoàn Nhất Minh** | Model Lead + EfficientNet-B3 |
+| **Nguyễn Bảo Tiên** | Slide & Demo |
+| **Võ Lê Phúc Thịnh** | Evaluation & Report + GradCAM |
+| **Lê Nguyễn Minh Khôi** | Data Engineering + UNet |
 
 * **👨‍🏫 Mentor hướng dẫn:** Chu Minh Nguyên
 * **🏛️ Đơn vị:** Machine Learning & IoT Lab (HCMUT - EE)
