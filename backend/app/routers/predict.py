@@ -113,6 +113,16 @@ async def upload_and_predict(request: Request, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi chạy mô hình dự đoán: {str(e)}")
 
+    # 4b. Cổng gác OOD (src/ood_detector.py, xem ai_engine.py::OOD_GATE_ENABLED) — ảnh
+    # không giống X-quang phổi (màu sắc/hình dạng mask bất thường) bị từ chối TẠI ĐÂY,
+    # KHÔNG trả một chẩn đoán bịa. File raw vẫn đã lưu ở bước 2 để có record, nhưng
+    # không có result/heatmap image nào được tạo ra cho ca này.
+    if prediction_data.get("invalid_input"):
+        raise HTTPException(
+            status_code=422,
+            detail="Ảnh tải lên không phải ảnh x quang phổi",
+        )
+
     # 5. Đường dẫn URL trả về cho trình duyệt
     base_url = str(request.base_url).rstrip("/")
     raw_image_url = f"{base_url}/static/raw/{unique_filename}"
@@ -132,6 +142,7 @@ async def upload_and_predict(request: Request, file: UploadFile = File(...)):
         "message": "Phân tích thành công",
         "disease": prediction_data["disease"],
         "confidence": prediction_data["confidence"],
+        "probabilities": prediction_data.get("probabilities", {}),
         "raw_image_url": raw_image_url,
         "result_image_url": result_image_url,
         "heatmap_url": heatmap_url,

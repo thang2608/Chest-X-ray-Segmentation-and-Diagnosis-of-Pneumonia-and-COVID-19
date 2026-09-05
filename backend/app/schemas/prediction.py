@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel, Field
 
 
@@ -36,6 +36,16 @@ class EvaluationMetrics(BaseModel):
         description="Tỷ lệ vùng phổi (theo mask U-Net) trùng với vùng Grad-CAM 'nóng' — ước lượng diện tích phổi model đang chú ý khi chẩn đoán (%)",
         example=18.4,
     )
+    pointing_game: Optional[str] = Field(
+        "Hit",
+        description="Kết quả Pointing Game: 'Hit' nếu điểm kích hoạt Grad-CAM cực đại nằm trong phổi, 'Miss' nếu nằm ngoài",
+        example="Hit",
+    )
+    soft_containment: Optional[float] = Field(
+        95.0,
+        description="Soft Containment: Tỷ lệ năng lượng kích hoạt Grad-CAM nằm trọn trong vùng phổi (%)",
+        example=94.5,
+    )
     inference_time_ms: float = Field(
         ...,
         description="Thời gian mô hình AI xử lý và suy luận (mili-giây)",
@@ -61,8 +71,13 @@ class PredictionResponse(BaseModel):
     )
     confidence: float = Field(
         ...,
-        description="Tỷ lệ phần trăm độ tin cậy của kết quả dự đoán (từ 0 đến 100%)",
-        example=92.5,
+        description="Xác suất dự đoán của nhóm bệnh cao nhất (từ 0 đến 100%)",
+        example=97.6,
+    )
+    probabilities: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Phổ xác suất dự đoán cho cả 3 nhóm bệnh (0 đến 100%)",
+        example={"Lung Opacity": 97.6, "COVID-19": 2.0, "Normal": 0.4},
     )
     raw_image_url: str = Field(
         ...,

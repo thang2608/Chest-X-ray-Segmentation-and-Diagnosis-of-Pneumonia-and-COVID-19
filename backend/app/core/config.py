@@ -2,6 +2,13 @@ import os
 import sys
 from pathlib import Path
 
+# Windows console mac dinh dung codepage cp1252, khong encode duoc tieng Viet co dau
+# (vd "đã sẵn sàng") -> crash toan bo app khi print() gap ky tu nhu vay (UnicodeEncodeError).
+# Ep stdout/stderr sang UTF-8 ngay tu dau, truoc khi bat ky module nao khac print gi.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # Thư mục gốc của Backend (backend/)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -23,30 +30,29 @@ RAW_IMAGES_DIR = UPLOADS_DIR / "raw"
 RESULT_IMAGES_DIR = UPLOADS_DIR / "results"
 HEATMAPS_DIR = UPLOADS_DIR / "heatmaps"
 
-# Thư mục chứa model weights — DÙNG CHUNG weights/ ở gốc repo (đã có best_classifier.pth
-# và best_unet.pth từ notebooks/train_classifier.ipynb, train_unet.ipynb) — KHÔNG copy
-# trùng file .pth nặng (~140MB) vào backend/weights/ riêng.
-WEIGHTS_DIR = REPO_ROOT / "weights"
+# Thư mục chứa model weights — tìm ở REPO_ROOT/weights/ hoặc backend/weights/
+WEIGHTS_DIR = REPO_ROOT / "weights" if (REPO_ROOT / "weights").exists() else BASE_DIR / "weights"
+
+def _find_weight_file(filename: str) -> Path:
+    p_repo = REPO_ROOT / "weights" / filename
+    p_backend = BASE_DIR / "weights" / filename
+    if p_repo.exists():
+        return p_repo
+    if p_backend.exists():
+        return p_backend
+    return p_repo
 
 # --- Các model phân loại & segmentation của nhánh demo ---
-CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier.pth"
-CROPPED_CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier_cropped.pth"  # bản "đã tối ưu"
-# — xem notebooks/train_classifier_cropped.ipynb, docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md.
-BLACKOUT_CLASSIFIER_WEIGHTS = WEIGHTS_DIR / "best_classifier_blackout.pth"  # xoá pixel
-# ngoài hình dạng phổi thay vì chỉ crop bounding box — giảm shortcut RẤT mạnh nhưng
-# Macro F1 val giảm xuống DƯỚI CẢ baseline (0.8659 < 0.9057, xem
-# docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.5) — KHÔNG phải bản "tốt hơn" đơn thuần.
-# ai_engine.py ưu tiên CROPPED_CLASSIFIER_WEIGHTS trước (cân bằng tốt nhất); file này
-# chỉ dùng khi CROPPED thiếu/lỗi, không tự động "leo thang" lên vì có sẵn.
-UNET_WEIGHTS = WEIGHTS_DIR / "best_unet.pth"
+CLASSIFIER_WEIGHTS = _find_weight_file("best_classifier.pth")
+CROPPED_CLASSIFIER_WEIGHTS = _find_weight_file("best_classifier_cropped.pth")
+BLACKOUT_CLASSIFIER_WEIGHTS = _find_weight_file("best_classifier_blackout.pth")
+UNET_WEIGHTS = _find_weight_file("best_unet.pth")
 
-# --- Model nhận diện YOLO của nhánh main ---
-YOLO_MEDICAL_SEG_WEIGHTS = WEIGHTS_DIR / "yolov10-medical-seg.pt"
+# --- Model nhận diện YOLO ---
+YOLO_MEDICAL_SEG_WEIGHTS = _find_weight_file("yolov10-medical-seg.pt")
 
 # --- Khởi tạo mặc định ---
-# Giữ thiết lập của nhánh demo làm mặc định để các file như ai_engine.py hoạt động đúng.
-# Nếu phần code nào từ nhánh main cần gọi file YOLO, bạn chỉ cần import biến YOLO_MEDICAL_SEG_WEIGHTS.
-DEFAULT_MODEL_WEIGHTS = CLASSIFIER_WEIGHTS  # giữ tên cũ để tương thích ngược nếu có chỗ khác import
+DEFAULT_MODEL_WEIGHTS = CROPPED_CLASSIFIER_WEIGHTS if CROPPED_CLASSIFIER_WEIGHTS.exists() else CLASSIFIER_WEIGHTS
 
 # Tự động khởi tạo các thư mục lưu trữ nếu chưa có
 os.makedirs(RAW_IMAGES_DIR, exist_ok=True)

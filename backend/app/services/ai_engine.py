@@ -36,6 +36,7 @@ from src.dataset import (
 )
 from src.gradcam import generate_gradcam, overlay_heatmap
 from src.model import build_classifier, load_classifier
+from src.ood_detector import is_valid_chest_xray
 from src.shortcut_iou import binarize, containment, iou, predict_lung_mask
 from src.unet import build_unet
 
@@ -47,6 +48,14 @@ DISPLAY_NAME = {"Normal": "Normal", "Lung_Opacity": "Lung Opacity", "COVID": "CO
 GRADCAM_THRESH = 0.5
 LOW_TRUST_CONTAINMENT = 0.3  # dưới ngưỡng này: cảnh báo model có thể đang nhìn ngoài phổi
 CROP_PADDING = 0.1  # PHẢI khớp giá trị dùng lúc train notebooks/train_classifier_cropped.ipynb
+
+# Cổng gác OOD (mentor feedback: ảnh không liên quan — khỉ, xe... — vẫn bị chẩn đoán
+# bệnh phổi). Dùng src/ood_detector.py — heuristic 2 tầng (ảnh có xám không + hình
+# dạng mask U-Net có giống phổi không), đã kiểm chứng: false-positive 1/1350 (0.07%)
+# trên tập test thật, true-positive 40/40 (100%) trên ảnh giả lập không phải X-quang
+# phổi (xem src/validate_ood_detector.py). Cờ bật/tắt nhanh nếu cần debug mà không
+# phải sửa code gọi.
+OOD_GATE_ENABLED = True
 
 # Số liệu TỔNG HỢP trên val set (1350 ảnh, KHÔNG PHẢI tính riêng cho từng ảnh upload —
 # ảnh mới không có ground-truth để tính per-image) — lấy từ lần train + đánh giá gần nhất,
@@ -194,12 +203,24 @@ class MedicalSegmentationModel:
         image_np = np.array(pil_image)                       # (H0,W0,3) RGB uint8
         image_resized = cv2.resize(image_np, IMAGE_SIZE)      # (224,224,3) RGB — ảnh gốc đã resize
 
+        # U-Net chạy 1 LẦN trên ảnh gốc CHƯA crop — dùng chung cho: (a) cổng gác OOD
+        # bên dưới, (b) làm căn cứ crop nếu crop_mode, (c) mask hiển thị cuối cùng.
+        # Tránh gọi U-Net 2 lần như code cũ (crop_mode từng tự tính lại).
+        unet_input = self.transform(image=image_np)["image"]
+        lung_mask = predict_lung_mask(self.unet, unet_input)
+
+        if OOD_GATE_ENABLED:
+            is_valid, ood_detail = is_valid_chest_xray(image_resized, lung_mask)
+            if not is_valid:
+                return {
+                    "invalid_input": True,
+                    "ood_reasons": ood_detail["reasons"],
+                }
+
         if self.crop_mode:
-            # Bản ĐÃ TỐI ƯU: U-Net chạy TRƯỚC để lấy mask, dùng mask đó crop ảnh trước
-            # khi đưa vào classifier (classifier này được train trên ảnh đã crop). Grad-CAM
-            # sau đó cũng chạy trên ảnh ĐÃ CROP — overlay hiển thị trên khung ảnh đã crop.
-            unet_input = self.transform(image=image_np)["image"]
-            lung_mask = predict_lung_mask(self.unet, unet_input)
+            # Bản ĐÃ TỐI ƯU: dùng mask đã tính ở trên để crop ảnh trước khi đưa vào
+            # classifier (classifier này được train trên ảnh đã crop). Grad-CAM sau đó
+            # cũng chạy trên ảnh ĐÃ CROP — overlay hiển thị trên khung ảnh đã crop.
             # blackout_mode: xoá pixel NGOÀI hình dạng phổi (không chỉ ngoài bounding
             # box) — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4.
             crop_fn = crop_to_lung_bbox_blackout if self.blackout_mode else crop_to_lung_bbox
@@ -207,10 +228,10 @@ class MedicalSegmentationModel:
             img_tensor = self.transform(image=classifier_input_np)["image"]
             overlay_base = cv2.resize(classifier_input_np, IMAGE_SIZE)
         else:
-            # Bản BASELINE — giữ nguyên hành vi gốc.
-            img_tensor = self.transform(image=image_np)["image"]
+            # Bản BASELINE — giữ nguyên hành vi gốc (img_tensor giống hệt unet_input,
+            # tái dùng thay vì transform lại).
+            img_tensor = unet_input
             overlay_base = image_resized
-            lung_mask = None  # tính sau, dùng chung code với nhánh trên
 
         with torch.no_grad():
             logits = self.classifier(img_tensor.unsqueeze(0).to(self.device))
@@ -224,8 +245,7 @@ class MedicalSegmentationModel:
         heatmap = generate_gradcam(self.classifier, img_tensor, target_class=pred_idx)
         heatmap_overlay = overlay_heatmap(overlay_base, heatmap)  # (224,224,3) RGB
 
-        if lung_mask is None:
-            lung_mask = predict_lung_mask(self.unet, img_tensor)   # (224,224) {0,1}, hệ toạ độ ẢNH GỐC
+        # lung_mask đã tính 1 lần ở đầu hàm (dùng chung cho cổng gác OOD + crop nếu có).
 
         # Mask hiển thị: LUÔN vẽ trên ảnh gốc CHƯA crop (dễ hiểu hơn mask đã crop, nhìn
         # gần như trắng xoá toàn khung) — tô xanh lá bán trong suốt lên vùng phổi.
@@ -262,6 +282,18 @@ class MedicalSegmentationModel:
             else 0.0
         )
 
+        # 1. Pointing Game: Kiểm tra điểm cực đại của Grad-CAM có nằm trong mask phổi không
+        max_loc = np.unravel_index(np.argmax(heatmap), heatmap.shape)
+        pointing_game = "Hit" if compare_mask[max_loc] > 0 else "Miss"
+
+        # 2. Soft Containment: Tỷ lệ năng lượng Grad-CAM nằm trong mask phổi (%)
+        total_energy = float(heatmap.sum())
+        soft_containment = (
+            float(heatmap[compare_mask > 0].sum() / total_energy * 100.0)
+            if total_energy > 0
+            else 0.0
+        )
+
         # PIL/src.gradcam trả RGB — cv2.imwrite cần BGR, đổi lại trước khi ghi đĩa.
         cv2.imwrite(heatmap_output_path, cv2.cvtColor(heatmap_overlay, cv2.COLOR_RGB2BGR))
         cv2.imwrite(mask_output_path, cv2.cvtColor(mask_display, cv2.COLOR_RGB2BGR))
@@ -277,6 +309,8 @@ class MedicalSegmentationModel:
         metrics = dict(aggregate)
         metrics["iou_score"] = round(float(iou_score), 3)
         metrics["affected_lung_area"] = round(affected_lung_area, 1)
+        metrics["pointing_game"] = pointing_game
+        metrics["soft_containment"] = round(soft_containment, 1)
         metrics["inference_time_ms"] = elapsed_ms
 
         warning = None
@@ -293,9 +327,16 @@ class MedicalSegmentationModel:
                 "phoi cho anh nay - ket qua co the khong dang tin cay (xem docs/LY_THUYET.md Phan VIII)."
             )
 
+        probabilities = {
+            DISPLAY_NAME[IDX_TO_CLASS[i]]: round(float(probs[i]) * 100, 1)
+            for i in range(len(probs))
+        }
+
         return {
             "disease": disease,
             "confidence": round(float(probs[pred_idx]) * 100, 1),  # schema quy ước 0-100%
+            "probabilities": probabilities,
             "metrics": metrics,
             "warning": warning,  # đọc ở routers/predict.py, ghép vào disclaimer nếu có
         }
+
