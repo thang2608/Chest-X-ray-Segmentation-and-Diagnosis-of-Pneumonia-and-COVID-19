@@ -36,7 +36,7 @@ from src.dataset import (
 )
 from src.gradcam import generate_gradcam, overlay_heatmap
 from src.model import build_classifier, load_classifier
-from src.ood_detector import is_valid_chest_xray
+from src.ood_detector import is_valid_chest_xray, normalize_for_model
 from src.shortcut_iou import binarize, containment, iou, predict_lung_mask
 from src.unet import build_unet
 
@@ -201,15 +201,26 @@ class MedicalSegmentationModel:
 
         pil_image = Image.open(image_path).convert("RGB")
         image_np = np.array(pil_image)                       # (H0,W0,3) RGB uint8
-        image_resized = cv2.resize(image_np, IMAGE_SIZE)      # (224,224,3) RGB — ảnh gốc đã resize
+        image_resized = cv2.resize(image_np, IMAGE_SIZE)      # (224,224,3) RGB — ẢNH HIỂN THỊ, giữ nguyên
+        # tint gốc (nếu có) — dùng cho raw/mask-display/heatmap-overlay, KHÔNG dùng
+        # trực tiếp làm input model (xem chuẩn hoá bên dưới).
 
-        # U-Net chạy 1 LẦN trên ảnh gốc CHƯA crop — dùng chung cho: (a) cổng gác OOD
-        # bên dưới, (b) làm căn cứ crop nếu crop_mode, (c) mask hiển thị cuối cùng.
-        # Tránh gọi U-Net 2 lần như code cũ (crop_mode từng tự tính lại).
-        unet_input = self.transform(image=image_np)["image"]
+        # Ảnh ĐƯA VÀO MODEL (U-Net + classifier) — chuẩn hoá về xám/luminance qua
+        # src.ood_detector.normalize_for_model() (xem docstring hàm đó để biết vì
+        # sao cần bước này — tóm tắt: ảnh tint 1 màu đều vẫn hợp lệ về mặt y tế
+        # nhưng làm U-Net cho mask RỖNG nếu không chuẩn hoá trước).
+        model_input_resized = normalize_for_model(image_resized)
+
+        # U-Net chạy 1 LẦN trên ảnh (đã chuẩn hoá) CHƯA crop — dùng chung cho: (a) cổng
+        # gác OOD bên dưới, (b) làm căn cứ crop nếu crop_mode, (c) mask hiển thị cuối
+        # cùng. Tránh gọi U-Net 2 lần như code cũ (crop_mode từng tự tính lại).
+        unet_input = self.transform(image=model_input_resized)["image"]
         lung_mask = predict_lung_mask(self.unet, unet_input)
 
         if OOD_GATE_ENABLED:
+            # Dùng ẢNH GỐC (image_resized, CHƯA chuẩn hoá xám) để phân biệt đúng "tint
+            # đều 1 màu" (vẫn hợp lệ) với "ảnh màu tự nhiên nhiều vùng" (không hợp lệ)
+            # — xem src/ood_detector.py::channel_consistency_score.
             is_valid, ood_detail = is_valid_chest_xray(image_resized, lung_mask)
             if not is_valid:
                 return {
@@ -224,12 +235,14 @@ class MedicalSegmentationModel:
             # blackout_mode: xoá pixel NGOÀI hình dạng phổi (không chỉ ngoài bounding
             # box) — xem docs/BAO_CAO_KET_QUA_HUAN_LUYEN.md Phần 5.4.
             crop_fn = crop_to_lung_bbox_blackout if self.blackout_mode else crop_to_lung_bbox
-            classifier_input_np = crop_fn(image_resized, lung_mask, padding=CROP_PADDING)
+            classifier_input_np = crop_fn(model_input_resized, lung_mask, padding=CROP_PADDING)
             img_tensor = self.transform(image=classifier_input_np)["image"]
-            overlay_base = cv2.resize(classifier_input_np, IMAGE_SIZE)
+            # overlay hiển thị: crop từ ẢNH GỐC (giữ tint) để người dùng nhận ra đúng
+            # ảnh mình tải lên, không phải bản đã chuẩn hoá xám.
+            overlay_base = cv2.resize(crop_fn(image_resized, lung_mask, padding=CROP_PADDING), IMAGE_SIZE)
         else:
-            # Bản BASELINE — giữ nguyên hành vi gốc (img_tensor giống hệt unet_input,
-            # tái dùng thay vì transform lại).
+            # Bản BASELINE — img_tensor dùng bản đã chuẩn hoá (unet_input, tái dùng
+            # thay vì transform lại); overlay hiển thị giữ ảnh gốc (có tint nếu có).
             img_tensor = unet_input
             overlay_base = image_resized
 
