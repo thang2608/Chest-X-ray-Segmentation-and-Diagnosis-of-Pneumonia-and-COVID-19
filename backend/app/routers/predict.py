@@ -132,6 +132,7 @@ async def upload_and_predict(request: Request, file: UploadFile = File(...)):
         "message": "Phân tích thành công",
         "disease": prediction_data["disease"],
         "confidence": prediction_data["confidence"],
+        "probabilities": prediction_data.get("probabilities", {}),
         "raw_image_url": raw_image_url,
         "result_image_url": result_image_url,
         "heatmap_url": heatmap_url,

@@ -538,37 +538,95 @@
       border: 1px solid var(--success-border);
     }
 
-    /* Confidence Meter */
-    .confidence-panel {
-      margin-top: 10px;
+    /* Probability Distribution Meter */
+    .prob-distribution-panel {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.08);
     }
 
-    .confidence-label-row {
+    .prob-header-row {
       display: flex;
       justify-content: space-between;
-      font-size: 0.75rem;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .prob-title {
+      font-size: 0.72rem;
+      font-weight: 600;
       color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .prob-row {
+      margin-bottom: 8px;
+      background: rgba(15, 23, 42, 0.45);
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      transition: all 0.25s ease;
+    }
+
+    .prob-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .prob-row.active {
+      background: rgba(30, 58, 138, 0.25);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+
+    .prob-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.76rem;
       margin-bottom: 4px;
     }
 
-    .confidence-score {
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 700;
-      color: var(--text-main);
+    .prob-name {
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
-    .progress-track {
-      height: 6px;
-      background: #0d131f;
+    .prob-row.active .prob-name {
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .prob-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .prob-row.active .prob-val {
+      color: #38bdf8;
+      font-weight: 700;
+    }
+
+    .prob-track {
+      height: 5px;
+      background: #090d16;
       border-radius: 3px;
       overflow: hidden;
     }
 
-    .progress-bar {
+    .prob-bar {
       height: 100%;
-      background: var(--primary);
+      background: #334155;
       width: 0%;
-      transition: width 0.8s ease-out;
+      border-radius: 3px;
+      transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .prob-row.active .prob-bar {
+      background: linear-gradient(90deg, #2563eb, #38bdf8);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
     }
 
     /* Metrics Grid */
@@ -963,14 +1021,41 @@
                 </div>
                 <div class="summary-disease" id="resDisease">COVID-19</div>
                 
-                <!-- Thanh đo độ tin cậy -->
-                <div class="confidence-panel">
-                  <div class="confidence-label-row">
-                    <span>Độ tin cậy mô hình</span>
-                    <span class="confidence-score" id="resConfidenceVal">94.2%</span>
+                <!-- Phổ xác suất 3 nhóm bệnh -->
+                <div class="prob-distribution-panel">
+                  <div class="prob-header-row">
+                    <span class="prob-title">Phân bố xác suất 3 nhóm bệnh</span>
+                    <span style="font-size: 0.7rem; color: var(--text-secondary);">Tổng: 100%</span>
                   </div>
-                  <div class="progress-track">
-                    <div class="progress-bar" id="resConfidenceBar"></div>
+
+                  <div class="prob-row" id="probRowLungOpacity">
+                    <div class="prob-meta">
+                      <span class="prob-name">🩺 Giảm thông khí / Mờ phổi (Lung Opacity)</span>
+                      <span class="prob-val" id="probValLungOpacity">0.0%</span>
+                    </div>
+                    <div class="prob-track">
+                      <div class="prob-bar" id="probBarLungOpacity"></div>
+                    </div>
+                  </div>
+
+                  <div class="prob-row" id="probRowCovid">
+                    <div class="prob-meta">
+                      <span class="prob-name">🦠 Tổn thương do COVID-19</span>
+                      <span class="prob-val" id="probValCovid">0.0%</span>
+                    </div>
+                    <div class="prob-track">
+                      <div class="prob-bar" id="probBarCovid"></div>
+                    </div>
+                  </div>
+
+                  <div class="prob-row" id="probRowNormal">
+                    <div class="prob-meta">
+                      <span class="prob-name">🫁 Phổi bình thường (Normal)</span>
+                      <span class="prob-val" id="probValNormal">0.0%</span>
+                    </div>
+                    <div class="prob-track">
+                      <div class="prob-bar" id="probBarNormal"></div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1096,10 +1181,16 @@
       </thead>
       <tbody>
         <tr>
-          <td>Độ tin cậy mô hình (Confidence)</td>
+          <td>Xác suất chẩn đoán (Confidence)</td>
           <td><strong id="printConfidence">94.2%</strong></td>
           <td>> 85.0%</td>
-          <td>Mức độ tin cậy của thuật toán phân loại</td>
+          <td>Xác suất dự đoán phân loại cao nhất</td>
+        </tr>
+        <tr>
+          <td>Phổ xác suất 3 bệnh (Distribution)</td>
+          <td id="printProbDistribution" style="font-size: 8.5pt;">-</td>
+          <td>Tổng = 100%</td>
+          <td>Tỷ lệ xác suất: Lung Opacity / COVID-19 / Normal</td>
         </tr>
         <tr>
           <td>Điểm cực đại tập trung (Pointing Game)</td>
@@ -1267,10 +1358,33 @@
         badge.textContent = 'Không có tổn thương';
       }
 
-      const conf = data.confidence || 90;
-      document.getElementById('resConfidenceVal').textContent = conf.toFixed(1) + '%';
+      // Cập nhật xác suất 3 nhóm bệnh
+      const probs = data.probabilities || {
+        "Lung Opacity": disease === "Lung Opacity" ? (data.confidence || 90) : ((100 - (data.confidence || 90)) / 2),
+        "COVID-19": disease === "COVID-19" ? (data.confidence || 90) : ((100 - (data.confidence || 90)) / 2),
+        "Normal": disease === "Normal" ? (data.confidence || 90) : 0.0
+      };
+
+      const pLung = probs["Lung Opacity"] !== undefined ? probs["Lung Opacity"] : 0;
+      const pCovid = probs["COVID-19"] !== undefined ? probs["COVID-19"] : 0;
+      const pNormal = probs["Normal"] !== undefined ? probs["Normal"] : 0;
+
+      if (document.getElementById('probValLungOpacity')) document.getElementById('probValLungOpacity').textContent = pLung.toFixed(1) + '%';
+      if (document.getElementById('probValCovid')) document.getElementById('probValCovid').textContent = pCovid.toFixed(1) + '%';
+      if (document.getElementById('probValNormal')) document.getElementById('probValNormal').textContent = pNormal.toFixed(1) + '%';
+
+      const rowLung = document.getElementById('probRowLungOpacity');
+      const rowCovid = document.getElementById('probRowCovid');
+      const rowNormal = document.getElementById('probRowNormal');
+
+      if (rowLung) rowLung.classList.toggle('active', disease === 'Lung Opacity');
+      if (rowCovid) rowCovid.classList.toggle('active', disease === 'COVID-19');
+      if (rowNormal) rowNormal.classList.toggle('active', disease === 'Normal');
+
       setTimeout(() => {
-        document.getElementById('resConfidenceBar').style.width = conf + '%';
+        if (document.getElementById('probBarLungOpacity')) document.getElementById('probBarLungOpacity').style.width = pLung + '%';
+        if (document.getElementById('probBarCovid')) document.getElementById('probBarCovid').style.width = pCovid + '%';
+        if (document.getElementById('probBarNormal')) document.getElementById('probBarNormal').style.width = pNormal + '%';
       }, 50);
 
       const m = data.metrics || {
@@ -1326,6 +1440,14 @@
       document.getElementById('printFilename').textContent = (currentFile ? currentFile.name : 'chest_xray.png');
       document.getElementById('printDisease').textContent = analysisResult.disease || 'COVID-19';
       document.getElementById('printConfidence').textContent = (analysisResult.confidence || 90).toFixed(1) + '%';
+      if (document.getElementById('printProbDistribution')) {
+        const probs = analysisResult.probabilities || {};
+        const pL = (probs["Lung Opacity"] !== undefined ? probs["Lung Opacity"] : 0).toFixed(1);
+        const pC = (probs["COVID-19"] !== undefined ? probs["COVID-19"] : 0).toFixed(1);
+        const pN = (probs["Normal"] !== undefined ? probs["Normal"] : 0).toFixed(1);
+        document.getElementById('printProbDistribution').innerHTML = 
+          `Mờ phổi: <strong>${pL}%</strong> | COVID: <strong>${pC}%</strong> | Thường: <strong>${pN}%</strong>`;
+      }
 
       const m = analysisResult.metrics || {};
       if (document.getElementById('printPointing')) document.getElementById('printPointing').textContent = m.pointing_game || 'Hit';

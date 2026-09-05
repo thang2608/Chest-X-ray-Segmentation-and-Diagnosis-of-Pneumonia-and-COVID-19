@@ -307,9 +307,16 @@ class MedicalSegmentationModel:
                 "phoi cho anh nay - ket qua co the khong dang tin cay (xem docs/LY_THUYET.md Phan VIII)."
             )
 
+        probabilities = {
+            DISPLAY_NAME[IDX_TO_CLASS[i]]: round(float(probs[i]) * 100, 1)
+            for i in range(len(probs))
+        }
+
         return {
             "disease": disease,
             "confidence": round(float(probs[pred_idx]) * 100, 1),  # schema quy ước 0-100%
+            "probabilities": probabilities,
             "metrics": metrics,
             "warning": warning,  # đọc ở routers/predict.py, ghép vào disclaimer nếu có
         }
+

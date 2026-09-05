@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel, Field
 
 
@@ -71,8 +71,13 @@ class PredictionResponse(BaseModel):
     )
     confidence: float = Field(
         ...,
-        description="Tỷ lệ phần trăm độ tin cậy của kết quả dự đoán (từ 0 đến 100%)",
-        example=92.5,
+        description="Xác suất dự đoán của nhóm bệnh cao nhất (từ 0 đến 100%)",
+        example=97.6,
+    )
+    probabilities: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Phổ xác suất dự đoán cho cả 3 nhóm bệnh (0 đến 100%)",
+        example={"Lung Opacity": 97.6, "COVID-19": 2.0, "Normal": 0.4},
     )
     raw_image_url: str = Field(
         ...,
