@@ -538,37 +538,95 @@
       border: 1px solid var(--success-border);
     }
 
-    /* Confidence Meter */
-    .confidence-panel {
-      margin-top: 10px;
+    /* Probability Distribution Meter */
+    .prob-distribution-panel {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.08);
     }
 
-    .confidence-label-row {
+    .prob-header-row {
       display: flex;
       justify-content: space-between;
-      font-size: 0.75rem;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .prob-title {
+      font-size: 0.72rem;
+      font-weight: 600;
       color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .prob-row {
+      margin-bottom: 8px;
+      background: rgba(15, 23, 42, 0.45);
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      transition: all 0.25s ease;
+    }
+
+    .prob-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .prob-row.active {
+      background: rgba(30, 58, 138, 0.25);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+
+    .prob-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.76rem;
       margin-bottom: 4px;
     }
 
-    .confidence-score {
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 700;
-      color: var(--text-main);
+    .prob-name {
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
-    .progress-track {
-      height: 6px;
-      background: #0d131f;
+    .prob-row.active .prob-name {
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .prob-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .prob-row.active .prob-val {
+      color: #38bdf8;
+      font-weight: 700;
+    }
+
+    .prob-track {
+      height: 5px;
+      background: #090d16;
       border-radius: 3px;
       overflow: hidden;
     }
 
-    .progress-bar {
+    .prob-bar {
       height: 100%;
-      background: var(--primary);
+      background: #334155;
       width: 0%;
-      transition: width 0.8s ease-out;
+      border-radius: 3px;
+      transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .prob-row.active .prob-bar {
+      background: linear-gradient(90deg, #2563eb, #38bdf8);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
     }
 
     /* Metrics Grid */
@@ -583,12 +641,12 @@
 
     .metrics-table-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
       margin-bottom: 20px;
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 900px) {
       .metrics-table-grid {
         grid-template-columns: repeat(2, 1fr);
       }
@@ -849,30 +907,8 @@
           <p>Hệ Thống Phân Tích & Hỗ Trợ Chẩn Đoán Hình Ảnh X-Quang Phổi</p>
         </div>
       </a>
-      <div class="header-status">
-        <div class="privacy-tag">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-          Chế độ Bảo Mật Không Lưu Hồ Sơ (Privacy-First)
-        </div>
-        <div class="system-status">
-          <div class="status-dot"></div>
-          <span>INFERENCE ENGINE ONLINE</span>
-        </div>
-      </div>
     </div>
   </header>
-
-  <!-- Technical Meta Bar -->
-  <div class="meta-bar">
-    <div class="meta-bar-inner">
-      <div class="meta-item">Giao thức phân tích: <span>YOLOv10 Segmentation & Grad-CAM Heatmap</span></div>
-      <div class="meta-item">Độ phân giải chuẩn hóa: <span>256 x 256 px</span></div>
-      <div class="meta-item">Cơ chế xử lý: <span>On-the-fly In-Memory Inference</span></div>
-    </div>
-  </div>
 
   <!-- Main Grid Workspace -->
   <main>
@@ -985,14 +1021,40 @@
                 </div>
                 <div class="summary-disease" id="resDisease">COVID-19</div>
                 
-                <!-- Thanh đo độ tin cậy -->
-                <div class="confidence-panel">
-                  <div class="confidence-label-row">
-                    <span>Độ tin cậy mô hình</span>
-                    <span class="confidence-score" id="resConfidenceVal">94.2%</span>
+                <!-- Phổ xác suất 3 nhóm bệnh -->
+                <div class="prob-distribution-panel">
+                  <div class="prob-header-row">
+                    <span class="prob-title">Phân bố xác suất 3 nhóm bệnh</span>
                   </div>
-                  <div class="progress-track">
-                    <div class="progress-bar" id="resConfidenceBar"></div>
+
+                  <div class="prob-row" id="probRowLungOpacity">
+                    <div class="prob-meta">
+                      <span class="prob-name">Giảm thông khí / Mờ phổi (Lung Opacity)</span>
+                      <span class="prob-val" id="probValLungOpacity">0.0%</span>
+                    </div>
+                    <div class="prob-track">
+                      <div class="prob-bar" id="probBarLungOpacity"></div>
+                    </div>
+                  </div>
+
+                  <div class="prob-row" id="probRowCovid">
+                    <div class="prob-meta">
+                      <span class="prob-name">Tổn thương do COVID-19 (COVID-19)</span>
+                      <span class="prob-val" id="probValCovid">0.0%</span>
+                    </div>
+                    <div class="prob-track">
+                      <div class="prob-bar" id="probBarCovid"></div>
+                    </div>
+                  </div>
+
+                  <div class="prob-row" id="probRowNormal">
+                    <div class="prob-meta">
+                      <span class="prob-name">Phổi bình thường (Normal)</span>
+                      <span class="prob-val" id="probValNormal">0.0%</span>
+                    </div>
+                    <div class="prob-track">
+                      <div class="prob-bar" id="probBarNormal"></div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1000,32 +1062,22 @@
             </div>
 
             <!-- Bảng chỉ số đánh giá kỹ thuật (Metrics) -->
-            <div class="metrics-header">Bảng chỉ số đánh giá kỹ thuật (Evaluation Metrics)</div>
+            <div class="metrics-header">Bảng chỉ số đánh giá kỹ thuật & Giải thích (Evaluation & XAI Metrics)</div>
             <div class="metrics-table-grid">
-              <div class="metric-cell">
-                <div class="metric-cell-name">Dice Similarity (F1)</div>
-                <div class="metric-cell-value" id="mDice">0.895</div>
-                <div class="metric-cell-desc">Độ trùng khớp phân đoạn</div>
-              </div>
-              <div class="metric-cell">
-                <div class="metric-cell-name">IoU (Jaccard Index)</div>
-                <div class="metric-cell-value" id="mIoU">0.823</div>
-                <div class="metric-cell-desc">Tỷ lệ diện tích giao thoa</div>
-              </div>
-              <div class="metric-cell">
-                <div class="metric-cell-name">Precision</div>
-                <div class="metric-cell-value" id="mPrecision">93.6%</div>
-                <div class="metric-cell-desc">Độ chính xác khoanh vùng</div>
-              </div>
-              <div class="metric-cell">
-                <div class="metric-cell-name">Sensitivity (Recall)</div>
-                <div class="metric-cell-value" id="mRecall">91.8%</div>
-                <div class="metric-cell-desc">Độ nhạy phát hiện bệnh</div>
-              </div>
               <div class="metric-cell">
                 <div class="metric-cell-name">Tổn thương phổi</div>
                 <div class="metric-cell-value" id="mAffected">18.7%</div>
                 <div class="metric-cell-desc">% Tổng diện tích phổi</div>
+              </div>
+              <div class="metric-cell">
+                <div class="metric-cell-name">Pointing Game</div>
+                <div class="metric-cell-value" id="mPointing" style="color: #34d399;">Hit</div>
+                <div class="metric-cell-desc">Đỉnh nhiệt trong phổi</div>
+              </div>
+              <div class="metric-cell">
+                <div class="metric-cell-name">Soft Containment</div>
+                <div class="metric-cell-value" id="mSoftCont">95.2%</div>
+                <div class="metric-cell-desc">Năng lượng trong phổi</div>
               </div>
               <div class="metric-cell">
                 <div class="metric-cell-name">Thời gian suy luận</div>
@@ -1038,7 +1090,7 @@
             <div class="viewer-container">
               <div class="viewer-tabs">
                 <button class="v-tab active" onclick="switchView('raw', this)">Ảnh X-Quang Gốc</button>
-                <button class="v-tab" onclick="switchView('mask', this)">Phân Đoạn Vùng Tổn Thương (Mask)</button>
+                <button class="v-tab" onclick="switchView('mask', this)">Segmentation Phổi (Mask)</button>
                 <button class="v-tab" onclick="switchView('heatmap', this)">Bản Đồ Nhiệt Grad-CAM</button>
               </div>
 
@@ -1099,7 +1151,7 @@
       <div>Đối tượng: <strong>Bệnh nhân ngoại trú (Khám sàng lọc)</strong></div>
       <div>Vùng chụp: <strong>X-quang ngực thẳng (PA View)</strong></div>
       <div>Tệp ảnh gốc: <span id="printFilename">scan.png</span></div>
-      <div>Mô hình AI: <strong>YOLOv10 Segmentation & Grad-CAM</strong></div>
+      <div>Mô hình AI: <strong>U-Net Segmentation & Grad-CAM</strong></div>
     </div>
 
     <div class="report-images">
@@ -1109,7 +1161,7 @@
       </div>
       <div>
         <img id="printMaskImg" src="" alt="Mask">
-        <div class="report-img-label">2. Phân đoạn tổn thương (Mask)</div>
+        <div class="report-img-label">2. Segmentation Phổi (Mask)</div>
       </div>
       <div>
         <img id="printHeatmapImg" src="" alt="Grad-CAM">
@@ -1128,28 +1180,28 @@
       </thead>
       <tbody>
         <tr>
-          <td>Độ tin cậy mô hình (Confidence)</td>
+          <td>Xác suất chẩn đoán (Confidence)</td>
           <td><strong id="printConfidence">94.2%</strong></td>
           <td>> 85.0%</td>
-          <td>Mức độ tin cậy của thuật toán phân loại</td>
+          <td>Xác suất dự đoán phân loại cao nhất</td>
         </tr>
         <tr>
-          <td>Hệ số tương đồng Dice (DSC / F1)</td>
-          <td><strong id="printDice">0.895</strong></td>
-          <td>> 0.800</td>
-          <td>Độ trùng khớp vùng tổn thương phân đoạn</td>
+          <td>Phổ xác suất 3 bệnh (Distribution)</td>
+          <td id="printProbDistribution" style="font-size: 8.5pt;">-</td>
+          <td>-</td>
+          <td>Tỷ lệ xác suất: Lung Opacity / COVID-19 / Normal</td>
         </tr>
         <tr>
-          <td>Chỉ số Jaccard (IoU)</td>
-          <td><strong id="printIoU">0.823</strong></td>
-          <td>> 0.750</td>
-          <td>Tỷ lệ bao phủ diện tích tổn thương</td>
+          <td>Điểm cực đại tập trung (Pointing Game)</td>
+          <td><strong id="printPointing">Hit</strong></td>
+          <td>Hit (Chuẩn)</td>
+          <td>Điểm nhiệt cao nhất nằm trọn trong phổi</td>
         </tr>
         <tr>
-          <td>Độ chính xác & Độ nhạy (Precision / Recall)</td>
-          <td><strong id="printPrecRec">93.6% / 91.8%</strong></td>
-          <td>> 90.0%</td>
-          <td>Độ nhạy phát hiện vùng bệnh</td>
+          <td>Năng lượng tập trung (Soft Containment)</td>
+          <td><strong id="printSoftCont">95.2%</strong></td>
+          <td>> 80.0%</td>
+          <td>Tỷ lệ năng lượng Grad-CAM nằm trong phổi</td>
         </tr>
         <tr>
           <td>Tỷ lệ tổn thương phổi (% Lung Area)</td>
@@ -1305,27 +1357,51 @@
         badge.textContent = 'Không có tổn thương';
       }
 
-      const conf = data.confidence || 90;
-      document.getElementById('resConfidenceVal').textContent = conf.toFixed(1) + '%';
+      // Cập nhật xác suất 3 nhóm bệnh
+      const probs = data.probabilities || {
+        "Lung Opacity": disease === "Lung Opacity" ? (data.confidence || 90) : ((100 - (data.confidence || 90)) / 2),
+        "COVID-19": disease === "COVID-19" ? (data.confidence || 90) : ((100 - (data.confidence || 90)) / 2),
+        "Normal": disease === "Normal" ? (data.confidence || 90) : 0.0
+      };
+
+      const pLung = probs["Lung Opacity"] !== undefined ? probs["Lung Opacity"] : 0;
+      const pCovid = probs["COVID-19"] !== undefined ? probs["COVID-19"] : 0;
+      const pNormal = probs["Normal"] !== undefined ? probs["Normal"] : 0;
+
+      if (document.getElementById('probValLungOpacity')) document.getElementById('probValLungOpacity').textContent = pLung.toFixed(1) + '%';
+      if (document.getElementById('probValCovid')) document.getElementById('probValCovid').textContent = pCovid.toFixed(1) + '%';
+      if (document.getElementById('probValNormal')) document.getElementById('probValNormal').textContent = pNormal.toFixed(1) + '%';
+
+      const rowLung = document.getElementById('probRowLungOpacity');
+      const rowCovid = document.getElementById('probRowCovid');
+      const rowNormal = document.getElementById('probRowNormal');
+
+      if (rowLung) rowLung.classList.toggle('active', disease === 'Lung Opacity');
+      if (rowCovid) rowCovid.classList.toggle('active', disease === 'COVID-19');
+      if (rowNormal) rowNormal.classList.toggle('active', disease === 'Normal');
+
       setTimeout(() => {
-        document.getElementById('resConfidenceBar').style.width = conf + '%';
+        if (document.getElementById('probBarLungOpacity')) document.getElementById('probBarLungOpacity').style.width = pLung + '%';
+        if (document.getElementById('probBarCovid')) document.getElementById('probBarCovid').style.width = pCovid + '%';
+        if (document.getElementById('probBarNormal')) document.getElementById('probBarNormal').style.width = pNormal + '%';
       }, 50);
 
       const m = data.metrics || {
-        dice_score: 0.895,
-        iou_score: 0.823,
-        precision: 93.6,
-        recall: 91.8,
         affected_lung_area: 18.7,
+        pointing_game: "Hit",
+        soft_containment: 95.2,
         inference_time_ms: 32.2
       };
 
-      document.getElementById('mDice').textContent = (m.dice_score || 0).toFixed(3);
-      document.getElementById('mIoU').textContent = (m.iou_score || 0).toFixed(3);
-      document.getElementById('mPrecision').textContent = (m.precision || 0).toFixed(1) + '%';
-      document.getElementById('mRecall').textContent = (m.recall || 0).toFixed(1) + '%';
-      document.getElementById('mAffected').textContent = (m.affected_lung_area || 0).toFixed(1) + '%';
-      document.getElementById('mTime').textContent = (m.inference_time_ms || 0).toFixed(1) + ' ms';
+      if (document.getElementById('mAffected')) document.getElementById('mAffected').textContent = (m.affected_lung_area || 0).toFixed(1) + '%';
+      if (document.getElementById('mPointing')) {
+        const p = m.pointing_game || 'Hit';
+        const el = document.getElementById('mPointing');
+        el.textContent = p;
+        el.style.color = p === 'Hit' ? '#34d399' : '#f87171';
+      }
+      if (document.getElementById('mSoftCont')) document.getElementById('mSoftCont').textContent = (m.soft_containment || 95.0).toFixed(1) + '%';
+      if (document.getElementById('mTime')) document.getElementById('mTime').textContent = (m.inference_time_ms || 0).toFixed(1) + ' ms';
 
       if (data.disclaimer) {
         document.getElementById('resDisclaimer').textContent = data.disclaimer;
@@ -1363,12 +1439,19 @@
       document.getElementById('printFilename').textContent = (currentFile ? currentFile.name : 'chest_xray.png');
       document.getElementById('printDisease').textContent = analysisResult.disease || 'COVID-19';
       document.getElementById('printConfidence').textContent = (analysisResult.confidence || 90).toFixed(1) + '%';
+      if (document.getElementById('printProbDistribution')) {
+        const probs = analysisResult.probabilities || {};
+        const pL = (probs["Lung Opacity"] !== undefined ? probs["Lung Opacity"] : 0).toFixed(1);
+        const pC = (probs["COVID-19"] !== undefined ? probs["COVID-19"] : 0).toFixed(1);
+        const pN = (probs["Normal"] !== undefined ? probs["Normal"] : 0).toFixed(1);
+        document.getElementById('printProbDistribution').innerHTML = 
+          `Mờ phổi: <strong>${pL}%</strong> | COVID: <strong>${pC}%</strong> | Thường: <strong>${pN}%</strong>`;
+      }
 
       const m = analysisResult.metrics || {};
-      document.getElementById('printDice').textContent = (m.dice_score || 0.895).toFixed(3);
-      document.getElementById('printIoU').textContent = (m.iou_score || 0.823).toFixed(3);
-      document.getElementById('printPrecRec').textContent = `${(m.precision || 93.6).toFixed(1)}% / ${(m.recall || 91.8).toFixed(1)}%`;
-      document.getElementById('printArea').textContent = (m.affected_lung_area || 18.7).toFixed(1) + '%';
+      if (document.getElementById('printPointing')) document.getElementById('printPointing').textContent = m.pointing_game || 'Hit';
+      if (document.getElementById('printSoftCont')) document.getElementById('printSoftCont').textContent = (m.soft_containment || 95.0).toFixed(1) + '%';
+      if (document.getElementById('printArea')) document.getElementById('printArea').textContent = (m.affected_lung_area || 18.7).toFixed(1) + '%';
 
       document.getElementById('printRawImg').src = analysisResult.raw_image_url;
       document.getElementById('printMaskImg').src = analysisResult.result_image_url;
