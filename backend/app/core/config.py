@@ -2,6 +2,13 @@ import os
 import sys
 from pathlib import Path
 
+# Windows console mac dinh dung codepage cp1252, khong encode duoc tieng Viet co dau
+# (vd "đã sẵn sàng") -> crash toan bo app khi print() gap ky tu nhu vay (UnicodeEncodeError).
+# Ep stdout/stderr sang UTF-8 ngay tu dau, truoc khi bat ky module nao khac print gi.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # Thư mục gốc của Backend (backend/)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
